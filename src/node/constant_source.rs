@@ -122,7 +122,10 @@ impl AudioScheduledSourceNode for ConstantSourceNode {
 
     fn stop_at(&mut self, when: f64) {
         assert_valid_time_value(when);
-        assert!(self.has_start, "InvalidStateError cannot stop before start");
+        assert!(
+            self.has_start,
+            "InvalidStateError - cannot stop before start"
+        );
 
         self.registration.post_message(Schedule::Stop(when));
     }
@@ -371,5 +374,16 @@ mod tests {
 
         assert_float_eq!(channel[0..258], vec![0.; 258][..], abs_all <= 0.);
         assert_float_eq!(channel[258..], vec![1.; 254][..], abs_all <= 0.);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidStateError - cannot stop before start")]
+    fn stop_before_start_panics_with_parseable_message() {
+        // Embedders map panic messages of the form "<DOMException name> - <detail>"
+        // back to the corresponding DOMException. This message lacked the " - "
+        // separator and would be misclassified as a generic error.
+        let context = OfflineAudioContext::new(1, 128, 48000.);
+        let mut src = context.create_constant_source();
+        src.stop();
     }
 }
