@@ -547,7 +547,30 @@ impl AudioRenderQuantum {
         };
 
         // fast path if both buffers are upmixed mono signals
+        //
+        // `all_channels_identical()` is a pointer-based heuristic and cannot
+        // distinguish between
+        //   (a) a quantum genuinely up-mixed from mono (all channels share one
+        //       buffer by construction), and
+        //   (b) a quantum whose channels merely happen to share one buffer while
+        //       being semantically independent.
+        // Case (b) exists in practice: when several ChannelMerger inputs are fed
+        // from the same upstream node, all N output channels point at that single
+        // Rc (see `*output.channel_data_mut(i) = input.channel_data(0).clone()`
+        // in node/channel_merger.rs).
+        //
+        // This fast path collapses `self` to one channel, adds, then re-mixes to
+        // `new_channels`. That round-trip is only lossless when the speakers
+        // up-mix is a plain copy, i.e. (1,2). For (1,4)/(1,6) and any channel
+        // count > 2 the extra channels are filled with silence by mix_inner, so
+        // channels 1..N get wiped to zero.
+        //
+        // Restricting the fast path to new_channels <= 2 keeps the optimization
+        // for the overwhelmingly common mono/stereo connections while never
+        // collapsing data on wider quanta; those take the generic per-channel add
+        // below, which produces identical results for case (a).
         if interpretation == ChannelInterpretation::Speakers
+            && new_channels <= 2
             && self.all_channels_identical()
             && other.all_channels_identical()
         {
@@ -722,6 +745,49 @@ mod tests {
         // test add two signals
         signal1.add(&signal2);
         assert_float_eq!(&signal1[..], &[3.; RENDER_QUANTUM_SIZE][..], abs_all <= 0.);
+    }
+
+    #[test]
+    fn test_add_preserves_aliased_channels_beyond_stereo() {
+        // ChannelMerger outputs quanta whose N channels all point at the same
+        // Rc when several inputs are fed from one upstream node. The
+        // identical-channels fast path in add() cannot tell such quanta apart
+        // from genuine mono up-mixes; collapsing them to mono and re-mixing
+        // wipes channels 1..N to silence for channel counts > 2 (the speakers
+        // up-mix is only a plain copy for mono/stereo).
+        use crate::node::{ChannelConfigInner, ChannelCountMode, ChannelInterpretation};
+
+        let alloc = Alloc::with_capacity(4);
+
+        let mut signal = alloc.silence();
+        signal.copy_from_slice(&[1.; RENDER_QUANTUM_SIZE]);
+        let mut quantum = AudioRenderQuantum::from(signal);
+        // All three channels share the same underlying buffer, exactly like a
+        // ChannelMerger fed three times from the same source.
+        quantum.set_number_of_channels(3);
+        assert!(quantum.channels().windows(2).all(|w| {
+            use std::ops::Deref;
+            std::ptr::eq(w[0].deref().as_ptr(), w[1].deref().as_ptr())
+        }));
+
+        let mut other = AudioRenderQuantum::from(alloc.silence());
+        other.set_number_of_channels(3);
+
+        let config = ChannelConfigInner {
+            count: 3,
+            count_mode: ChannelCountMode::Max,
+            interpretation: ChannelInterpretation::Speakers,
+        };
+        quantum.add(&other, &config);
+
+        assert_eq!(quantum.number_of_channels(), 3);
+        for ch in 0..3 {
+            assert_float_eq!(
+                &quantum.channel_data(ch)[..],
+                &[1.; RENDER_QUANTUM_SIZE][..],
+                abs_all <= 0.
+            );
+        }
     }
 
     #[test]
