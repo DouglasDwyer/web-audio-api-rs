@@ -61,15 +61,7 @@ repos:
       - id: fmt
         args: [--all, --]
       - id: clippy
-        args:
-          [
-            --locked,
-            --workspace,
-            --all-targets,
-            --,
-            -D,
-            warnings,
-          ]
+        args: [--locked, --workspace, --all-targets, --, -D, warnings]
   - repo: local
     hooks:
       - id: cargo-doc
