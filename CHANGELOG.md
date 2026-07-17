@@ -1,5 +1,9 @@
 # Version History
 
+## Unreleased
+
+- Fix: Deduplicate connections between the same nodes
+
 ## Version 1.6.0 (2026-06-20)
 
 - Updated cpal to 0.18 for improved device disconnect/reconnect behaviour

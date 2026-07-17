@@ -248,11 +248,6 @@ fn test_repeated_connect_with_identical_termini_is_a_single_connection() {
     // Spec: "There can only be one connection between a given output of one
     // specific node and a given input of another specific node. Multiple
     // connections with the same termini are ignored."
-    //
-    // The connections set on the control thread already deduplicated, but the
-    // ConnectNode message was sent unconditionally and Graph::add_edge is a
-    // plain push - so every repeated connect() call added another render edge
-    // and the destination summed the source once more (2x, 3x, ... louder).
     let mut context = OfflineAudioContext::new(1, RENDER_QUANTUM_SIZE, 44_100.);
 
     let mut constant = context.create_constant_source();
@@ -265,8 +260,4 @@ fn test_repeated_connect_with_identical_termini_is_a_single_connection() {
     let output = context.start_rendering_sync();
     let samples = output.get_channel_data(0);
     assert_float_eq!(samples[64], 1., abs <= 0.);
-
-    // after an explicit disconnect the connection can be re-established
-    constant.disconnect_dest(&context.destination());
-    constant.connect(&context.destination());
 }

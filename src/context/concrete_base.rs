@@ -441,25 +441,17 @@ impl ConcreteBaseAudioContext {
 
     /// Connects the output of the `from` audio node to the input of the `to` audio node
     pub(crate) fn connect(&self, from: AudioNodeId, to: AudioNodeId, output: usize, input: usize) {
-        // The connections set is the authoritative list of established
-        // connections, but the ConnectNode message used to be sent
-        // unconditionally. Graph::add_edge on the render thread is a plain
-        // Vec::push, so a repeated connect() with identical termini created a
-        // duplicate render edge and the destination summed the source twice
-        // (audibly louder, and N-fold after N calls). The spec requires the
-        // repeat call to be a no-op: "There can only be one connection between
-        // a given output of one specific node and a given input of another
-        // specific node. Multiple connections with the same termini are
-        // ignored."
         let inserted = self
             .inner
             .connections
             .lock()
             .unwrap()
             .insert((from, output, to, input));
+
         if !inserted {
-            return;
+            return; // do not allow duplicated edges
         }
+
         let message = ControlMessage::ConnectNode {
             from,
             to,
