@@ -65,8 +65,6 @@ repos:
           [
             --locked,
             --workspace,
-            --features,
-            cubeb,
             --all-targets,
             --,
             -D,
