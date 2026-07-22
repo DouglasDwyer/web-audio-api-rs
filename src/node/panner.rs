@@ -831,7 +831,13 @@ impl AudioProcessor for PannerRenderer {
             // EqualPower panning
 
             // Optimize for static Panner & Listener
-            let single_valued = listener_position_x.len() == 1
+            let single_valued = source_position_x.len() == 1
+                && source_position_y.len() == 1
+                && source_position_z.len() == 1
+                && source_orientation_x.len() == 1
+                && source_orientation_y.len() == 1
+                && source_orientation_z.len() == 1
+                && listener_position_x.len() == 1
                 && listener_position_y.len() == 1
                 && listener_position_z.len() == 1
                 && listener_forward_x.len() == 1
@@ -1266,5 +1272,43 @@ mod tests {
 
         let right = output.channel_data(1).as_slice();
         assert!(right[128..256].iter().any(|v| *v >= 1E-6));
+    }
+
+    #[test]
+    fn test_arate_position_automation_varies_within_quantum() {
+        // Regression test for when `single_valued` method only inspected the
+        // nine *listener* parameter buffers and ignored the panner's own
+        // position/orientation params. A static listener is the common case,
+        // so the check almost always passed and any automation on the panner's
+        // positionX/Y/Z (a-rate per spec) was silently evaluated once per
+        // quantum, i.e. degraded to k-rate: the output moves in 128-frame
+        // stair steps instead of per-sample.
+        let mut context = OfflineAudioContext::new(2, 256, 48000.);
+
+        let mut src = context.create_constant_source();
+        src.offset().set_value(1.);
+        src.start();
+
+        let panner = context.create_panner();
+        // Sweep the source across the listener within the very first quantum.
+        panner.position_x().set_value_at_time(-10., 0.);
+        panner
+            .position_x()
+            .linear_ramp_to_value_at_time(10., 128. / 48000.);
+
+        src.connect(&panner);
+        panner.connect(&context.destination());
+
+        let result = context.start_rendering_sync();
+        let left = result.get_channel_data(0);
+
+        // With per-sample (a-rate) evaluation the left-channel gain must vary
+        // inside the first quantum; the k-rate degradation renders the whole
+        // quantum with the frame-0 position and the samples are all equal.
+        let varies = left.windows(2).take(127).any(|w| w[0] != w[1]);
+        assert!(
+            varies,
+            "position automation was evaluated once per quantum (k-rate degradation)"
+        );
     }
 }
