@@ -1273,23 +1273,16 @@ mod tests {
         let right = output.channel_data(1).as_slice();
         assert!(right[128..256].iter().any(|v| *v >= 1E-6));
     }
-}
-
-#[cfg(test)]
-mod arate_position_tests {
-    use crate::context::{BaseAudioContext, OfflineAudioContext};
-    use crate::node::{AudioNode, AudioScheduledSourceNode};
 
     #[test]
     fn test_arate_position_automation_varies_within_quantum() {
-        // The EqualPower fast path decides whether spatialization parameters
-        // are constant over the render quantum ("single valued"). It only
-        // inspected the nine *listener* parameter buffers and ignored the
-        // panner's own position/orientation params. A static listener is the
-        // common case, so the check almost always passed and any automation on
-        // the panner's positionX/Y/Z (a-rate per spec) was silently evaluated
-        // once per quantum, i.e. degraded to k-rate: the output moves in
-        // 128-frame stair steps instead of per-sample.
+        // Regression test for when `single_valued` method only inspected the
+        // nine *listener* parameter buffers and ignored the panner's own
+        // position/orientation params. A static listener is the common case,
+        // so the check almost always passed and any automation on the panner's
+        // positionX/Y/Z (a-rate per spec) was silently evaluated once per
+        // quantum, i.e. degraded to k-rate: the output moves in 128-frame
+        // stair steps instead of per-sample.
         let mut context = OfflineAudioContext::new(2, 256, 48000.);
 
         let mut src = context.create_constant_source();
