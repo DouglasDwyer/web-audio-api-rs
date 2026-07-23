@@ -530,12 +530,12 @@ impl AudioRenderQuantum {
     ///
     /// Both buffers will be mixed up front according to the supplied `channel_config`
     pub(crate) fn add(&mut self, other: &Self, channel_config: &ChannelConfigInner) {
-        // gather initial channel counts
+        // Gather initial channel counts
         let channels_self = self.number_of_channels();
         let channels_other = other.number_of_channels();
         let max_channels = channels_self.max(channels_other);
 
-        // up/down-mix the to the desired channel count for the receiving node
+        // Up/down-mix the to the desired channel count for the receiving node
         let interpretation = channel_config.interpretation;
         let mode = channel_config.count_mode;
         let count = channel_config.count;
@@ -546,29 +546,9 @@ impl AudioRenderQuantum {
             ChannelCountMode::ClampedMax => max_channels.min(count),
         };
 
-        // fast path if both buffers are upmixed mono signals
-        //
-        // `all_channels_identical()` is a pointer-based heuristic and cannot
-        // distinguish between
-        //   (a) a quantum genuinely up-mixed from mono (all channels share one
-        //       buffer by construction), and
-        //   (b) a quantum whose channels merely happen to share one buffer while
-        //       being semantically independent.
-        // Case (b) exists in practice: when several ChannelMerger inputs are fed
-        // from the same upstream node, all N output channels point at that single
-        // Rc (see `*output.channel_data_mut(i) = input.channel_data(0).clone()`
-        // in node/channel_merger.rs).
-        //
-        // This fast path collapses `self` to one channel, adds, then re-mixes to
-        // `new_channels`. That round-trip is only lossless when the speakers
-        // up-mix is a plain copy, i.e. (1,2). For (1,4)/(1,6) and any channel
-        // count > 2 the extra channels are filled with silence by mix_inner, so
-        // channels 1..N get wiped to zero.
-        //
-        // Restricting the fast path to new_channels <= 2 keeps the optimization
-        // for the overwhelmingly common mono/stereo connections while never
-        // collapsing data on wider quanta; those take the generic per-channel add
-        // below, which produces identical results for case (a).
+        // Fast path if both buffers are upmixed mono signals, and when the
+        // desired output is mono/stereo. For higher channel counts `mix` is
+        // non-trivial so this fast path cannot apply.
         if interpretation == ChannelInterpretation::Speakers
             && new_channels <= 2
             && self.all_channels_identical()
