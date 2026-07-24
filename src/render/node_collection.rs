@@ -13,12 +13,8 @@ impl Hasher for AudioNodeIdHasher {
         self.0
     }
 
-    fn write(&mut self, bytes: &[u8]) {
-        // AudioNodeId's derived Hash implementation uses write_u64. Keep a
-        // deterministic fallback in case its representation changes.
-        self.0 = bytes
-            .iter()
-            .fold(0, |hash, byte| hash.rotate_left(8) ^ u64::from(*byte));
+    fn write(&mut self, _bytes: &[u8]) {
+        panic!("AudioNodeIdHasher only supports u64 keys");
     }
 
     fn write_u64(&mut self, value: u64) {
