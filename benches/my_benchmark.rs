@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "iai")]
 use iai::black_box;
@@ -14,7 +14,7 @@ use paste::paste;
 
 use web_audio_api::context::BaseAudioContext;
 use web_audio_api::context::OfflineAudioContext;
-use web_audio_api::node::{AudioNode, AudioScheduledSourceNode, PanningModelType};
+use web_audio_api::node::{AudioNode, AudioScheduledSourceNode, GainNode, PanningModelType};
 use web_audio_api::worklet::{AudioWorkletNode, AudioWorkletNodeOptions};
 use web_audio_api::AudioBuffer;
 
@@ -297,6 +297,52 @@ pub fn bench_sine_gain_with_worklet() {
     assert_eq!(ctx.start_rendering_sync().length(), SAMPLES);
 }
 
+pub fn bench_graph_reordering() {
+    const RENDER_QUANTUM_SIZE: usize = 128;
+    const CHAIN_COUNT: usize = 600;
+    const CHAIN_LENGTH: usize = 7;
+    const REORDER_COUNT: usize = 5;
+
+    let length = (REORDER_COUNT + 2) * RENDER_QUANTUM_SIZE;
+    let mut ctx = OfflineAudioContext::new(1, black_box(length), SAMPLE_RATE);
+    let mut nodes: Vec<GainNode> = Vec::with_capacity(CHAIN_COUNT * CHAIN_LENGTH);
+
+    // A wide graph with many short chains exercises visited-node membership
+    // without making recursive traversal depth the dominant cost.
+    for _ in 0..CHAIN_COUNT {
+        for index in 0..CHAIN_LENGTH {
+            let node = ctx.create_gain();
+            if index > 0 {
+                nodes.last().unwrap().connect(&node);
+            }
+            nodes.push(node);
+        }
+        nodes.last().unwrap().connect(&ctx.destination());
+    }
+
+    // Keep these handles alive after their callbacks disconnect them. Otherwise
+    // dropping a handle would add node reclamation to the measurement.
+    let switches = Arc::new(
+        (0..REORDER_COUNT)
+            .map(|_| {
+                let node = ctx.create_gain();
+                node.connect(&ctx.destination());
+                node
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    for index in 0..REORDER_COUNT {
+        let switches = Arc::clone(&switches);
+        let suspend_time = ((index + 1) * RENDER_QUANTUM_SIZE) as f64 / SAMPLE_RATE as f64;
+        ctx.suspend_sync(suspend_time, move |_| switches[index].disconnect());
+    }
+
+    assert_eq!(ctx.start_rendering_sync().length(), length);
+    black_box(nodes);
+    black_box(switches);
+}
+
 macro_rules! iai_or_criterion {
     ( $( $func:ident ),+ $(,)* ) => {
         #[cfg(feature = "iai")]
@@ -341,4 +387,5 @@ iai_or_criterion!(
     bench_analyser_node,
     bench_hrtf_panners,
     bench_sine_gain_with_worklet,
+    bench_graph_reordering,
 );
