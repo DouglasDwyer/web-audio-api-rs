@@ -2,6 +2,27 @@ use crate::context::{AudioNodeId, DESTINATION_NODE_ID};
 use crate::render::graph::Node;
 
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::hash::{BuildHasherDefault, Hasher};
+
+#[derive(Default)]
+pub(super) struct AudioNodeIdHasher(u64);
+
+impl Hasher for AudioNodeIdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        panic!("AudioNodeIdHasher only supports u64 keys");
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = value;
+    }
+}
+
+pub(super) type AudioNodeIdSet = HashSet<AudioNodeId, BuildHasherDefault<AudioNodeIdHasher>>;
 
 #[derive(Debug)]
 pub(crate) struct NodeCollection {
