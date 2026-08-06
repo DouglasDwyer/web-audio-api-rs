@@ -2,7 +2,7 @@ use std::error::Error;
 
 use crate::buffer::{AudioBuffer, AudioBufferOptions};
 use crate::io::AudioBackendManager;
-use crate::RENDER_QUANTUM_SIZE;
+use crate::{RENDER_QUANTUM_SIZE, MAX_CHANNELS};
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
@@ -20,7 +20,7 @@ impl MicrophoneStream {
     ) -> Self {
         Self {
             receiver,
-            number_of_channels: backend.number_of_channels(),
+            number_of_channels: backend.number_of_channels().min(MAX_CHANNELS),
             sample_rate: backend.sample_rate(),
             stream: backend,
         }
@@ -74,7 +74,7 @@ pub(crate) struct MicrophoneRender {
 impl MicrophoneRender {
     pub fn new(number_of_channels: usize, sample_rate: f32, sender: Sender<AudioBuffer>) -> Self {
         Self {
-            number_of_channels,
+            number_of_channels: number_of_channels.min(MAX_CHANNELS),
             sample_rate,
             sender,
         }
