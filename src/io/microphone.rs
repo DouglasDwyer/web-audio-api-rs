@@ -2,7 +2,7 @@ use std::error::Error;
 
 use crate::buffer::{AudioBuffer, AudioBufferOptions};
 use crate::io::AudioBackendManager;
-use crate::{RENDER_QUANTUM_SIZE, MAX_CHANNELS};
+use crate::RENDER_QUANTUM_SIZE;
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 
