@@ -320,27 +320,30 @@ pub fn bench_graph_reordering() {
         nodes.last().unwrap().connect(&ctx.destination());
     }
 
-    // Keep these handles alive after their callbacks disconnect them. Otherwise
-    // dropping a handle would add node reclamation to the measurement.
-    let switches = Arc::new(
+    // Each pair is initially disconnected. Because the source is registered before
+    // its destination, the initial unconstrained order puts the destination first.
+    // Connecting the pair therefore invalidates the current ordering.
+    let pending_edges = Arc::new(
         (0..REORDER_COUNT)
             .map(|_| {
-                let node = ctx.create_gain();
-                node.connect(&ctx.destination());
-                node
+                let source = ctx.create_gain();
+                let destination = ctx.create_gain();
+                (source, destination)
             })
             .collect::<Vec<_>>(),
     );
 
     for index in 0..REORDER_COUNT {
-        let switches = Arc::clone(&switches);
+        let pending_edges = Arc::clone(&pending_edges);
         let suspend_time = ((index + 1) * RENDER_QUANTUM_SIZE) as f64 / SAMPLE_RATE as f64;
-        ctx.suspend_sync(suspend_time, move |_| switches[index].disconnect());
+        ctx.suspend_sync(suspend_time, move |_| {
+            pending_edges[index].0.connect(&pending_edges[index].1);
+        });
     }
 
     assert_eq!(ctx.start_rendering_sync().length(), length);
     black_box(nodes);
-    black_box(switches);
+    black_box(pending_edges);
 }
 
 macro_rules! iai_or_criterion {
