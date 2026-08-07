@@ -431,8 +431,12 @@ impl AudioBackendManager for CpalBackend {
         let mut preferred: StreamConfig = supported.into();
 
         if let Some(number_of_channels) = number_of_channels {
-            preferred.channels = number_of_channels as u16;
+            // do not ask for more channels than available
+            preferred.channels = preferred.channels.min(number_of_channels as u16);
         }
+
+        // make sure we don't exceed MAX_CHANNELS
+        preferred.channels = preferred.channels.min(MAX_CHANNELS as u16);
 
         // set specific sample rate if requested
         if let Some(sample_rate) = options.sample_rate {
@@ -474,15 +478,27 @@ impl AudioBackendManager for CpalBackend {
                 stream
             }
             Err(e) => {
-                log::warn!("Output stream build failed with preferred config: {}", e);
+                log::warn!("Input stream build failed with preferred config: {}", e);
 
                 let supported_config: StreamConfig = supported.into();
+                if usize::from(supported_config.channels) > MAX_CHANNELS {
+                    return Err(AudioBackendError::new(
+                        AudioBackendErrorKind::NotSupported,
+                        "cpal",
+                        "build_input_stream",
+                        format!(
+                            "Input device requires {} channels, exceeding the supported maximum of {MAX_CHANNELS}; building a stream with {MAX_CHANNELS} channels failed: {e}",
+                            supported_config.channels
+                        ),
+                    ));
+                }
+
                 // fallback to device default sample rate and channel count
                 number_of_channels = usize::from(supported_config.channels);
                 sample_rate = supported_config.sample_rate as f32;
 
                 log::debug!(
-                    "Attempt output stream with fallback config: {:?}",
+                    "Attempt input stream with fallback config: {:?}",
                     supported_config
                 );
 

@@ -204,6 +204,10 @@ fn is_valid_device_id(device_id: &str) -> bool {
 /// stream. A public `try_get_user_media_sync` could be added in the future to handle these errors
 /// without panicking, similar to [`AudioContext::try_new`](crate::context::AudioContext::new).
 ///
+/// Input streams with more than [`MAX_CHANNELS`](crate::MAX_CHANNELS) are not
+/// supported. A panic will occur when the hardware is unable to serve a stream
+/// with lower channel count.
+///
 /// # Example
 ///
 /// ```no_run

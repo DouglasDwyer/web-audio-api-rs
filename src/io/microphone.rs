@@ -82,7 +82,6 @@ impl MicrophoneRender {
 
     pub fn render<S: dasp_sample::ToSample<f32> + Copy>(&self, data: &[S]) {
         let mut channels = Vec::with_capacity(self.number_of_channels);
-
         // copy rendered audio into output slice
         for i in 0..self.number_of_channels {
             channels.push(
