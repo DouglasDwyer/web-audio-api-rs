@@ -441,11 +441,17 @@ impl ConcreteBaseAudioContext {
 
     /// Connects the output of the `from` audio node to the input of the `to` audio node
     pub(crate) fn connect(&self, from: AudioNodeId, to: AudioNodeId, output: usize, input: usize) {
-        self.inner
+        let inserted = self
+            .inner
             .connections
             .lock()
             .unwrap()
             .insert((from, output, to, input));
+
+        if !inserted {
+            return; // do not allow duplicated edges
+        }
+
         let message = ControlMessage::ConnectNode {
             from,
             to,

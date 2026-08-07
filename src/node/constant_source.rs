@@ -122,7 +122,10 @@ impl AudioScheduledSourceNode for ConstantSourceNode {
 
     fn stop_at(&mut self, when: f64) {
         assert_valid_time_value(when);
-        assert!(self.has_start, "InvalidStateError cannot stop before start");
+        assert!(
+            self.has_start,
+            "InvalidStateError - cannot stop before start"
+        );
 
         self.registration.post_message(Schedule::Stop(when));
     }

@@ -87,7 +87,7 @@ impl AudioWorkletGlobalScope {
         };
         eprintln!(
             "Panic occurred in Audio Processor: '{}'. Removing node from graph.",
-            &message
+            message
         );
 
         let event = ErrorEvent {

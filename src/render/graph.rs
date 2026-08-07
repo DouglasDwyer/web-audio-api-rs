@@ -12,6 +12,7 @@ use crate::context::AudioNodeId;
 use crate::context::{AudioGraphDiagnostics, AudioGraphEdgeDiagnostics, AudioNodeDiagnostics};
 use smallvec::{smallvec, SmallVec};
 
+use super::node_collection::AudioNodeIdSet;
 use super::{Alloc, AudioParamValues, AudioProcessor, AudioRenderQuantum, NodeCollection};
 use crate::node::{ChannelConfigInner, ChannelCountMode, ChannelInterpretation};
 use crate::render::AudioWorkletGlobalScope;
@@ -131,11 +132,11 @@ pub(crate) struct Graph {
     /// Topological ordering of the nodes
     ordered: Vec<AudioNodeId>,
     /// Topological sorting helper
-    marked: Vec<AudioNodeId>,
+    marked: AudioNodeIdSet,
     /// Topological sorting helper
     marked_temp: Vec<AudioNodeId>,
     /// Topological sorting helper
-    in_cycle: Vec<AudioNodeId>,
+    in_cycle: AudioNodeIdSet,
     /// Topological sorting helper
     cycle_breakers: Vec<AudioNodeId>,
 }
@@ -156,9 +157,9 @@ impl Graph {
             alloc: Alloc::with_capacity(64),
             reclaim_id_channel,
             ordered: vec![],
-            marked: vec![],
+            marked: AudioNodeIdSet::default(),
             marked_temp: vec![],
-            in_cycle: vec![],
+            in_cycle: AudioNodeIdSet::default(),
             cycle_breakers: vec![],
         }
     }
@@ -331,10 +332,10 @@ impl Graph {
     fn visit(
         &self,
         node_id: AudioNodeId,
-        marked: &mut Vec<AudioNodeId>,
+        marked: &mut AudioNodeIdSet,
         marked_temp: &mut Vec<AudioNodeId>,
         ordered: &mut Vec<AudioNodeId>,
-        in_cycle: &mut Vec<AudioNodeId>,
+        in_cycle: &mut AudioNodeIdSet,
         cycle_breakers: &mut Vec<AudioNodeId>,
     ) -> bool {
         // If this node is in the cycle detection list, it is part of a cycle!
@@ -354,7 +355,7 @@ impl Graph {
                 }
                 None => {
                     // Mark all nodes in the cycle
-                    in_cycle.extend_from_slice(&marked_temp[pos..]);
+                    in_cycle.extend(marked_temp[pos..].iter().copied());
                     // Do not continue, as we already have visited all these nodes
                     return false;
                 }
@@ -367,7 +368,7 @@ impl Graph {
         }
 
         // Add node to the visited list
-        marked.push(node_id);
+        marked.insert(node_id);
         // Add node to the current cycle detection list
         marked_temp.push(node_id);
 

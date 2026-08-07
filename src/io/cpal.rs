@@ -312,7 +312,7 @@ impl AudioBackendManager for CpalBackend {
 
         log::debug!(
             "Attempt output stream with preferred config: {:?}",
-            &preferred_config
+            preferred_config
         );
 
         let spawned = spawn_output_stream(
@@ -340,7 +340,7 @@ impl AudioBackendManager for CpalBackend {
 
                 log::debug!(
                     "Attempt output stream with fallback config: {:?}",
-                    &supported_config
+                    supported_config
                 );
 
                 let mut renderer = RenderThread::new(
@@ -465,7 +465,7 @@ impl AudioBackendManager for CpalBackend {
 
         log::debug!(
             "Attempt input stream with preferred config: {:?}",
-            &preferred
+            preferred
         );
 
         let spawned = spawn_input_stream(&device, supported.sample_format(), preferred, renderer);
@@ -499,7 +499,7 @@ impl AudioBackendManager for CpalBackend {
 
                 log::debug!(
                     "Attempt input stream with fallback config: {:?}",
-                    &supported_config
+                    supported_config
                 );
 
                 // setup a new comms channel
