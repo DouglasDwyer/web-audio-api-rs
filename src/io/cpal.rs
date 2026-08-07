@@ -478,16 +478,27 @@ impl AudioBackendManager for CpalBackend {
                 stream
             }
             Err(e) => {
-                log::warn!("Output stream build failed with preferred config: {}", e);
+                log::warn!("Input stream build failed with preferred config: {}", e);
 
-                let mut supported_config: StreamConfig = supported.into();
-                supported_config.channels = supported_config.channels.min(MAX_CHANNELS as u16);
+                let supported_config: StreamConfig = supported.into();
+                if usize::from(supported_config.channels) > MAX_CHANNELS {
+                    return Err(AudioBackendError::new(
+                        AudioBackendErrorKind::NotSupported,
+                        "cpal",
+                        "build_input_stream",
+                        format!(
+                            "Input device requires {} channels, exceeding the supported maximum of {MAX_CHANNELS}; building a stream with {MAX_CHANNELS} channels failed: {e}",
+                            supported_config.channels
+                        ),
+                    ));
+                }
+
                 // fallback to device default sample rate and channel count
                 number_of_channels = usize::from(supported_config.channels);
                 sample_rate = supported_config.sample_rate as f32;
 
                 log::debug!(
-                    "Attempt output stream with fallback config: {:?}",
+                    "Attempt input stream with fallback config: {:?}",
                     &supported_config
                 );
 
