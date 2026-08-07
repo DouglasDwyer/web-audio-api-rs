@@ -20,7 +20,7 @@ impl MicrophoneStream {
     ) -> Self {
         Self {
             receiver,
-            number_of_channels: backend.number_of_channels().min(MAX_CHANNELS),
+            number_of_channels: backend.number_of_channels(),
             sample_rate: backend.sample_rate(),
             stream: backend,
         }
@@ -74,7 +74,7 @@ pub(crate) struct MicrophoneRender {
 impl MicrophoneRender {
     pub fn new(number_of_channels: usize, sample_rate: f32, sender: Sender<AudioBuffer>) -> Self {
         Self {
-            number_of_channels: number_of_channels.min(MAX_CHANNELS),
+            number_of_channels,
             sample_rate,
             sender,
         }
@@ -82,7 +82,6 @@ impl MicrophoneRender {
 
     pub fn render<S: dasp_sample::ToSample<f32> + Copy>(&self, data: &[S]) {
         let mut channels = Vec::with_capacity(self.number_of_channels);
-
         // copy rendered audio into output slice
         for i in 0..self.number_of_channels {
             channels.push(

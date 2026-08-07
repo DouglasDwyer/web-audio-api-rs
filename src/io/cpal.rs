@@ -431,8 +431,12 @@ impl AudioBackendManager for CpalBackend {
         let mut preferred: StreamConfig = supported.into();
 
         if let Some(number_of_channels) = number_of_channels {
-            preferred.channels = number_of_channels as u16;
+            // do not ask for more channels than available
+            preferred.channels = preferred.channels.min(number_of_channels as u16);
         }
+
+        // make sure we don't exceed MAX_CHANNELS
+        preferred.channels = preferred.channels.min(MAX_CHANNELS as u16);
 
         // set specific sample rate if requested
         if let Some(sample_rate) = options.sample_rate {
@@ -476,7 +480,8 @@ impl AudioBackendManager for CpalBackend {
             Err(e) => {
                 log::warn!("Output stream build failed with preferred config: {}", e);
 
-                let supported_config: StreamConfig = supported.into();
+                let mut supported_config: StreamConfig = supported.into();
+                supported_config.channels = supported_config.channels.min(MAX_CHANNELS as u16);
                 // fallback to device default sample rate and channel count
                 number_of_channels = usize::from(supported_config.channels);
                 sample_rate = supported_config.sample_rate as f32;
