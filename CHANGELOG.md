@@ -1,5 +1,9 @@
 # Version History
 
+## Unreleased
+
+- Fix panic by disallowing input streams with more than `MAX_CHANNELS` (32) channels
+
 ## Version 1.6.0 (2026-06-20)
 
 - Updated cpal to 0.18 for improved device disconnect/reconnect behaviour
