@@ -288,7 +288,11 @@ impl Graph {
                 edge.other_id != dest.0 || edge.self_index != source.1 || edge.other_index != dest.1
             });
 
-        self.ordered.clear(); // void current ordering
+        // Removing an edge cannot invalidate an existing topological order. Re-sort only when
+        // this removal may release nodes that were omitted because they are part of a cycle.
+        if !self.in_cycle.is_empty() {
+            self.ordered.clear();
+        }
     }
 
     pub fn mark_control_handle_dropped(&mut self, index: AudioNodeId) {
@@ -704,6 +708,43 @@ mod tests {
             .position(|&n| n == AudioNodeId(2))
             .unwrap();
         assert!(pos2 < pos1); // node 1 depends on node 2
+    }
+
+    #[test]
+    fn remove_edge_preserves_acyclic_ordering() {
+        let mut graph = Graph::new(llq::Queue::new().split().0);
+        let node = Box::new(TestNode { tail_time: false });
+        add_node(&mut graph, 0, node.clone());
+        add_node(&mut graph, 1, node);
+        add_edge(&mut graph, 1, 0);
+        graph.order_nodes();
+
+        let ordered = graph.ordered.clone();
+        graph.remove_edge((AudioNodeId(1), 0), (AudioNodeId(0), 0));
+
+        assert_eq!(graph.ordered, ordered);
+    }
+
+    #[test]
+    fn remove_edge_invalidates_ordering_with_cycle() {
+        let mut graph = Graph::new(llq::Queue::new().split().0);
+        let node = Box::new(TestNode { tail_time: false });
+        add_node(&mut graph, 0, node.clone());
+        add_node(&mut graph, 1, node.clone());
+        add_node(&mut graph, 2, node);
+        add_edge(&mut graph, 1, 2);
+        add_edge(&mut graph, 2, 1);
+        graph.order_nodes();
+
+        assert!(graph.in_cycle.contains(&AudioNodeId(1)));
+        assert!(graph.in_cycle.contains(&AudioNodeId(2)));
+
+        graph.remove_edge((AudioNodeId(2), 0), (AudioNodeId(1), 0));
+        assert!(graph.ordered.is_empty());
+
+        graph.order_nodes();
+        assert!(graph.ordered.contains(&AudioNodeId(1)));
+        assert!(graph.ordered.contains(&AudioNodeId(2)));
     }
 
     #[test]
