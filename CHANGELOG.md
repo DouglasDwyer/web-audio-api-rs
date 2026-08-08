@@ -1,6 +1,6 @@
 # Version History
 
-## Unreleased
+## Version 1.7.0 (2026-08-06)
 
 - Fix: Deduplicate connections between the same nodes
 - Fix: Avoid panic by disallowing input streams with more than `MAX_CHANNELS` (32) channels
