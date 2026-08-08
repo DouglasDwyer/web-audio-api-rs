@@ -40,11 +40,6 @@ pub(crate) fn load_hrtf_processor(sample_rate: u32) -> (HrtfProcessor, usize) {
     static INSTANCE: OnceLock<Mutex<HashMap<u32, (HrtfProcessor, usize)>>> = OnceLock::new();
     let cache = INSTANCE.get_or_init(|| Mutex::new(HashMap::new()));
 
-    // There's an upstream bug for low sample rates, so work around it by forcing sample_rate to be
-    // 27k minimum. The HRTF response will be a bit distorted but I assume you won't be using it
-    // anyway when running these low sample rates. <https://github.com/mrDIMAS/hrtf/issues/9>
-    let sample_rate = sample_rate.max(27_000);
-
     // To avoid poisening the cache mutex, don't use the `entry()` API on HashMap
     {
         if let Some(value) = cache.lock().unwrap().get(&sample_rate) {
@@ -1272,6 +1267,48 @@ mod tests {
 
         let right = output.channel_data(1).as_slice();
         assert!(right[128..256].iter().any(|v| *v >= 1E-6));
+    }
+
+    #[test]
+    fn test_hrtf_loads_at_minimum_sample_rate() {
+        let (_processor, len) = load_hrtf_processor(crate::MIN_SAMPLE_RATE as u32);
+
+        assert!(len > 0);
+        assert!(
+            len < 512,
+            "minimum-rate HRTF should use the resampled HRIR length, got {len}"
+        );
+    }
+
+    #[test]
+    fn test_hrtf_renders_at_minimum_sample_rate() {
+        let sample_rate = crate::MIN_SAMPLE_RATE;
+        let length = RENDER_QUANTUM_SIZE * 4;
+        let mut context = OfflineAudioContext::new(2, length, sample_rate);
+
+        let input = AudioBuffer::from(vec![vec![1.; RENDER_QUANTUM_SIZE]], sample_rate);
+        let mut src = AudioBufferSourceNode::new(&context, AudioBufferSourceOptions::default());
+        src.set_buffer(input);
+        src.start();
+
+        let options = PannerOptions {
+            panning_model: PanningModelType::HRTF,
+            ..PannerOptions::default()
+        };
+        let panner = PannerNode::new(&context, options);
+        panner.position_x().set_value(1.);
+
+        src.connect(&panner);
+        panner.connect(&context.destination());
+
+        let output = context.start_rendering_sync();
+        let left = output.channel_data(0).as_slice();
+        let right = output.channel_data(1).as_slice();
+
+        assert!(left.iter().all(|v| v.is_finite()));
+        assert!(right.iter().all(|v| v.is_finite()));
+        assert!(left.iter().any(|v| *v != 0.));
+        assert!(right.iter().any(|v| *v != 0.));
     }
 
     #[test]
