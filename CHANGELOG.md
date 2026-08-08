@@ -4,6 +4,9 @@
 
 - Fix: Deduplicate connections between the same nodes
 - Fix panic by disallowing input streams with more than `MAX_CHANNELS` (32) channels
+- Fix: EqualPower PannerNode now applies a-rate source position/orientation automation per sample
+- Fix: preserve multichannel audio when mixing aliased channels beyond stereo
+- Improved graph reordering performance for large graphs
 
 ## Version 1.6.0 (2026-06-20)
 
