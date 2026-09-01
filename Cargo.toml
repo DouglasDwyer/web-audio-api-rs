@@ -22,7 +22,12 @@ almost = "0.2.0"
 arc-swap = "1.6"
 arrayvec = "0.7"
 fft-convolver = "0.3"
-cpal = { version = "0.18", optional = true }
+# Fork change: cpal 0.18 -> 0.19 (unreleased, `RustAudio/cpal` master).
+# `src/io/cpal.rs` is ported to the 0.19 API (`CallbackInfo`,
+# `StreamTimestamp::device`, `StreamTrait::start`, no `ErrorKind::Xrun`).
+# 0.19 isn't published, so a consumer must `[patch]` `cpal` to a git rev;
+# CsRsWasm points it at `DouglasDwyer/cpal@webaudio-reach-any-wasm-target`.
+cpal = { version = "0.19", optional = true }
 creek = { version = "1.2", default-features = false, features = [
     "decode",
     "decode-all",
@@ -53,6 +58,16 @@ vecmath = "1.0"
 
 [target.'cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 no_denormals = "0.3"
+
+# Fork change: on wasm32 the only working cpal output backend is its Web
+# Audio API host, behind cpal's `wasm-bindgen` feature. This merges with the
+# `cpal` entry in [dependencies] (same version, still optional) and only
+# adds the feature for wasm32, so non-wasm builds are byte-for-byte
+# unaffected. Needs a cpal fork that lets that host build for
+# wasm32-unknown-emscripten (upstream gates it to wasm32-unknown-unknown) --
+# CsRsWasm patches in `DouglasDwyer/cpal@webaudio-reach-any-wasm-target`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "0.19", optional = true, features = ["wasm-bindgen"] }
 
 [dev-dependencies]
 futures = { version = "0.3.30", features = ["executor"] }

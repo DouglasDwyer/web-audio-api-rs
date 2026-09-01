@@ -5,8 +5,8 @@ use std::sync::Mutex;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Error as CpalError, ErrorKind as CpalErrorKind, OutputCallbackInfo, SampleFormat,
-    Stream, StreamConfig, SupportedBufferSize,
+    CallbackInfo, Device, Error as CpalError, ErrorKind as CpalErrorKind, SampleFormat, Stream,
+    StreamConfig, SupportedBufferSize,
 };
 use crossbeam_channel::Receiver;
 
@@ -98,7 +98,6 @@ fn map_cpal_error(operation: &'static str, err: CpalError) -> AudioBackendError 
         | CpalErrorKind::RealtimeDenied
         | CpalErrorKind::ResourceExhausted
         | CpalErrorKind::StreamInvalidated
-        | CpalErrorKind::Xrun
         | CpalErrorKind::BackendError
         | CpalErrorKind::Other
         | _ => AudioBackendErrorKind::BackendSpecific,
@@ -370,7 +369,7 @@ impl AudioBackendManager for CpalBackend {
 
         // Required because some hosts don't play the stream automatically
         stream
-            .play()
+            .start()
             .map_err(|e| map_cpal_error("play_output_stream", e))?;
 
         Ok(CpalBackend {
@@ -520,7 +519,7 @@ impl AudioBackendManager for CpalBackend {
 
         // Required because some hosts don't play the stream automatically
         stream
-            .play()
+            .start()
             .map_err(|e| map_cpal_error("play_input_stream", e))?;
 
         let backend = CpalBackend {
@@ -536,7 +535,7 @@ impl AudioBackendManager for CpalBackend {
 
     fn resume(&self) -> BackendResult<bool> {
         if let Some(s) = self.stream.lock().unwrap().as_ref() {
-            s.play()
+            s.start()
                 .map(|_| true)
                 .map_err(|e| map_cpal_error("resume", e))?;
             return Ok(true);
@@ -640,9 +639,9 @@ impl AudioBackendManager for CpalBackend {
     }
 }
 
-fn latency_in_seconds(infos: &OutputCallbackInfo) -> f64 {
+fn latency_in_seconds(infos: &CallbackInfo) -> f64 {
     let timestamp = infos.timestamp();
-    let delta = timestamp.playback.duration_since(timestamp.callback);
+    let delta = timestamp.device.duration_since(timestamp.callback);
     delta.as_secs() as f64 + delta.subsec_nanos() as f64 * 1e-9
 }
 
@@ -667,7 +666,7 @@ fn spawn_output_stream(
     match sample_format {
         SampleFormat::F32 => device.build_output_stream(
             config,
-            move |d: &mut [f32], i: &OutputCallbackInfo| {
+            move |d: &mut [f32], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -678,7 +677,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::F64 => device.build_output_stream(
             config,
-            move |d: &mut [f64], i: &OutputCallbackInfo| {
+            move |d: &mut [f64], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -689,7 +688,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::U8 => device.build_output_stream(
             config,
-            move |d: &mut [u8], i: &OutputCallbackInfo| {
+            move |d: &mut [u8], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -700,7 +699,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::U16 => device.build_output_stream(
             config,
-            move |d: &mut [u16], i: &OutputCallbackInfo| {
+            move |d: &mut [u16], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -711,7 +710,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::U32 => device.build_output_stream(
             config,
-            move |d: &mut [u32], i: &OutputCallbackInfo| {
+            move |d: &mut [u32], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -722,7 +721,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::U64 => device.build_output_stream(
             config,
-            move |d: &mut [u64], i: &OutputCallbackInfo| {
+            move |d: &mut [u64], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -733,7 +732,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::I8 => device.build_output_stream(
             config,
-            move |d: &mut [i8], i: &OutputCallbackInfo| {
+            move |d: &mut [i8], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -744,7 +743,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::I16 => device.build_output_stream(
             config,
-            move |d: &mut [i16], i: &OutputCallbackInfo| {
+            move |d: &mut [i16], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -755,7 +754,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::I32 => device.build_output_stream(
             config,
-            move |d: &mut [i32], i: &OutputCallbackInfo| {
+            move |d: &mut [i32], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
@@ -766,7 +765,7 @@ fn spawn_output_stream(
         ),
         SampleFormat::I64 => device.build_output_stream(
             config,
-            move |d: &mut [i64], i: &OutputCallbackInfo| {
+            move |d: &mut [i64], i: &CallbackInfo| {
                 render.render(d);
                 let latency = latency_in_seconds(i);
                 output_latency.store(latency, Ordering::Relaxed);
