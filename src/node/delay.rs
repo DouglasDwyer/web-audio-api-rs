@@ -313,6 +313,9 @@ impl DelayNode {
         let latest_frame_written = Rc::new(Cell::new(u64::MAX));
         let latest_frame_written_clone = Rc::clone(&latest_frame_written);
 
+        let in_cycle = Rc::new(Cell::new(false));
+        let in_cycle_clone = Rc::clone(&in_cycle);
+
         let node = context.base().register(move |writer_registration| {
             let node = context.base().register(move |reader_registration| {
                 let param_opts = AudioParamDescriptor {
@@ -331,7 +334,7 @@ impl DelayNode {
                     ring_buffer: shared_ring_buffer_clone,
                     index: 0,
                     last_written_index: last_written_index_clone,
-                    in_cycle: false,
+                    in_cycle: in_cycle_clone,
                     last_written_index_checked: None,
                     latest_frame_written: latest_frame_written_clone,
                 };
@@ -351,6 +354,7 @@ impl DelayNode {
                 index: 0,
                 last_written_index,
                 latest_frame_written,
+                in_cycle,
             };
 
             (node, Box::new(writer_render))
@@ -378,6 +382,7 @@ struct DelayWriter {
     index: usize,
     latest_frame_written: Rc<Cell<u64>>,
     last_written_index: Rc<Cell<Option<usize>>>,
+    in_cycle: Rc<Cell<bool>>,
 }
 
 // SAFETY:
@@ -461,7 +466,11 @@ impl AudioProcessor for DelayWriter {
     }
 
     fn has_side_effects(&self) -> bool {
-        true // message passing
+        // The writer produces no output; it only mutates the shared ring buffer. It must stay in
+        // the graph when it is breaking a feedback cycle (its reader feeds back into it), otherwise
+        // the loop would go silent. When it is not in a cycle it can be reclaimed once nothing
+        // reads from it any more. The reader reports cycle membership through this shared flag.
+        self.in_cycle.get()
     }
 }
 
@@ -493,7 +502,7 @@ struct DelayReader {
     ring_buffer: Rc<RefCell<Vec<AudioRenderQuantum>>>,
     index: usize,
     latest_frame_written: Rc<Cell<u64>>,
-    in_cycle: bool,
+    in_cycle: Rc<Cell<bool>>,
     last_written_index: Rc<Cell<Option<usize>>>,
     // local copy of shared `last_written_index` so as to avoid render ordering issues
     last_written_index_checked: Option<usize>,
@@ -532,11 +541,12 @@ impl AudioProcessor for DelayReader {
         let number_of_channels = ring_buffer[0].number_of_channels();
         output.set_number_of_channels(number_of_channels);
 
-        if !self.in_cycle {
+        if !self.in_cycle.get() {
             // check the latest written frame by the delay writer
             let latest_frame_written = self.latest_frame_written.get();
             // if the delay writer has not rendered before us, the cycle breaker has been applied
-            self.in_cycle = latest_frame_written != scope.current_frame;
+            self.in_cycle
+                .set(latest_frame_written != scope.current_frame);
             // once we store in_cycle = true, we do not want to go back to false
             // https://github.com/orottier/web-audio-api-rs/pull/198#discussion_r945326200
         }
@@ -553,7 +563,7 @@ impl AudioProcessor for DelayReader {
         if delay.len() == 1 {
             playback_infos[0] = Self::get_playback_infos(
                 f64::from(delay[0]),
-                self.in_cycle,
+                self.in_cycle.get(),
                 0.,
                 quantum_duration,
                 sample_rate,
@@ -590,7 +600,7 @@ impl AudioProcessor for DelayReader {
                 .for_each(|(index, (&d, infos))| {
                     *infos = Self::get_playback_infos(
                         f64::from(d),
-                        self.in_cycle,
+                        self.in_cycle.get(),
                         index as f64,
                         quantum_duration,
                         sample_rate,

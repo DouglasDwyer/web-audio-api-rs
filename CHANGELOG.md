@@ -4,6 +4,7 @@
 
 - `decode_audio_data` and `decode_audio_data_sync` no longer require the reader to be `'static`,
   so an audio source that borrows from the stack can be decoded
+- Fix: automatically free the resources of non-cyclic `DelayNode`s when their output is unused
 
 ## Version 1.7.0 (2026-08-06)
 
