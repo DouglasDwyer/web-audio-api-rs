@@ -304,9 +304,10 @@ impl DelayNode {
         let shared_ring_buffer = Rc::new(RefCell::new(ring_buffer));
         let shared_ring_buffer_clone = Rc::clone(&shared_ring_buffer);
 
-        // shared value set by the writer when it is dropped
-        let last_written_index = Rc::new(Cell::<Option<usize>>::new(None));
-        let last_written_index_clone = Rc::clone(&last_written_index);
+        // shared flag, set by the writer when it is decommissioned so the reader knows to flush
+        // its buffered tail and then stop
+        let writer_dropped = Rc::new(Cell::new(false));
+        let writer_dropped_clone = Rc::clone(&writer_dropped);
 
         // shared value for reader/writer to determine who was rendered first,
         // this will indicate if the delay node acts as a cycle breaker
@@ -333,9 +334,9 @@ impl DelayNode {
                     delay_time: proc,
                     ring_buffer: shared_ring_buffer_clone,
                     index: 0,
-                    last_written_index: last_written_index_clone,
+                    writer_dropped: writer_dropped_clone,
                     in_cycle: in_cycle_clone,
-                    last_written_index_checked: None,
+                    flush_quanta: None,
                     latest_frame_written: latest_frame_written_clone,
                 };
 
@@ -352,7 +353,7 @@ impl DelayNode {
             let writer_render = DelayWriter {
                 ring_buffer: shared_ring_buffer,
                 index: 0,
-                last_written_index,
+                writer_dropped,
                 latest_frame_written,
                 in_cycle,
             };
@@ -381,7 +382,7 @@ struct DelayWriter {
     ring_buffer: Rc<RefCell<Vec<AudioRenderQuantum>>>,
     index: usize,
     latest_frame_written: Rc<Cell<u64>>,
-    last_written_index: Rc<Cell<Option<usize>>>,
+    writer_dropped: Rc<Cell<bool>>,
     in_cycle: Rc<Cell<bool>>,
 }
 
@@ -413,13 +414,7 @@ trait RingBufferChecker {
 
 impl Drop for DelayWriter {
     fn drop(&mut self) {
-        let last_written_index = if self.index == 0 {
-            self.ring_buffer.borrow().capacity() - 1
-        } else {
-            self.index - 1
-        };
-
-        self.last_written_index.set(Some(last_written_index));
+        self.writer_dropped.set(true);
     }
 }
 
@@ -503,9 +498,10 @@ struct DelayReader {
     index: usize,
     latest_frame_written: Rc<Cell<u64>>,
     in_cycle: Rc<Cell<bool>>,
-    last_written_index: Rc<Cell<Option<usize>>>,
-    // local copy of shared `last_written_index` so as to avoid render ordering issues
-    last_written_index_checked: Option<usize>,
+    writer_dropped: Rc<Cell<bool>>,
+    // number of render quanta the reader may still emit after the writer was decommissioned,
+    // to flush the audio that is already buffered; `None` while the writer is still alive
+    flush_quanta: Option<usize>,
 }
 
 // SAFETY:
@@ -541,7 +537,7 @@ impl AudioProcessor for DelayReader {
         let number_of_channels = ring_buffer[0].number_of_channels();
         output.set_number_of_channels(number_of_channels);
 
-        if !self.in_cycle.get() {
+        if !self.in_cycle.get() && !self.writer_dropped.get() {
             // check the latest written frame by the delay writer
             let latest_frame_written = self.latest_frame_written.get();
             // if the delay writer has not rendered before us, the cycle breaker has been applied
@@ -673,19 +669,18 @@ impl AudioProcessor for DelayReader {
             output.make_silent();
         }
 
-        if matches!(self.last_written_index_checked, Some(index) if index == self.index) {
-            return false;
+        match &mut self.flush_quanta {
+            Some(0) => return false,
+            Some(remaining) => *remaining -= 1,
+            None if self.writer_dropped.get() => {
+                let max_delay = delay.iter().copied().fold(0.0_f32, f32::max);
+                let delay_samples = f64::from(max_delay) * sample_rate;
+                self.flush_quanta =
+                    Some((delay_samples / RENDER_QUANTUM_SIZE as f64).ceil() as usize);
+            }
+            None => {}
         }
 
-        // check if the writer has been decommissioned
-        // we need this local copy because if the writer has been processed
-        // before the reader, the direct check against `self.last_written_index`
-        // would be true earlier than we want
-        let last_written_index = self.last_written_index.get();
-
-        if last_written_index.is_some() && self.last_written_index_checked.is_none() {
-            self.last_written_index_checked = last_written_index;
-        }
         // increment ring buffer cursor
         self.index = (self.index + 1) % ring_buffer.capacity();
 
