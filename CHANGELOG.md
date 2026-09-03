@@ -1,5 +1,11 @@
 # Version History
 
+## Unreleased
+
+- Added `AudioWorkletProcessor::has_side_effects`. It defaults to `true` (the spec behaviour: an
+  active worklet is kept alive even when disconnected from the graph); override it to return
+  `false` to let a pure-transform worklet subgraph be disposed once all its handles are dropped.
+
 ## Version 1.7.0 (2026-08-06)
 
 - Fix: Deduplicate connections between the same nodes
