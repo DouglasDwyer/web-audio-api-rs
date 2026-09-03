@@ -23,7 +23,7 @@ arc-swap = "1.6"
 arrayvec = "0.7"
 fft-convolver = "0.3"
 cpal = { version = "0.18", optional = true }
-creek = { version = "1.2", default-features = false, features = [
+creek = { git = "https://github.com/DouglasDwyer/creek", branch = "claude/symphonia-0-6-upgrade-839bc0", version = "1.2", default-features = false, features = [
     "decode",
     "decode-all",
     "encode-wav",
