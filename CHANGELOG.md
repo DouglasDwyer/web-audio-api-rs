@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Fix: automatically free the resources of non-cyclic `DelayNode`s when their output is unused
+- Added `AudioWorkletProcessor::has_side_effects`. It defaults to `true` (the spec behaviour: an
+  active worklet is kept alive even when disconnected from the graph); override it to return
+  `false` to let a pure-transform worklet subgraph be disposed once all its handles are dropped.
 
 ## Version 1.7.0 (2026-08-06)
 
