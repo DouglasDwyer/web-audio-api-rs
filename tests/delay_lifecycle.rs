@@ -42,6 +42,64 @@ fn plain_delay_fire_and_forget_still_delays() {
     );
 }
 
+/// After the `DelayWriter` is reclaimed, the `DelayReader` must flush only what is still buffered
+/// and then stop. It must not keep sweeping the ring buffer and re-emit its stale contents one
+/// `max_delay_time` later.
+#[test]
+fn delay_fire_and_forget_has_no_phantom_echo() {
+    const SAMPLE_RATE: f32 = 48_000.0;
+    const MAX_DELAY: f64 = 1.0;
+    const DELAY_TIME: f64 = 0.25;
+    const BURST_LEN: f64 = 0.5;
+
+    let render_len = (SAMPLE_RATE * 3.0) as usize;
+    let mut ctx = OfflineAudioContext::new(1, render_len, SAMPLE_RATE);
+
+    // a half-second burst of amplitude 1.0
+    let burst_samples = (SAMPLE_RATE as f64 * BURST_LEN) as usize;
+    let mut buffer = ctx.create_buffer(1, burst_samples, SAMPLE_RATE);
+    buffer.copy_to_channel(&vec![1.0_f32; burst_samples], 0);
+
+    let delay = ctx.create_delay(MAX_DELAY);
+    delay.delay_time().set_value(DELAY_TIME as f32);
+    delay.connect(&ctx.destination());
+
+    let mut src = ctx.create_buffer_source();
+    src.set_buffer(buffer);
+    src.connect(&delay);
+    src.start();
+
+    // fire and forget: the render thread reclaims the DelayWriter as soon as the source ends
+    drop(src);
+    drop(delay);
+
+    let rendered = ctx.start_rendering_sync();
+    let channel = rendered.get_channel_data(0);
+
+    let peak = |from: f64, to: f64| {
+        let a = (from * SAMPLE_RATE as f64) as usize;
+        let b = (to * SAMPLE_RATE as f64) as usize;
+        channel[a..b].iter().fold(0.0_f32, |m, s| m.max(s.abs()))
+    };
+
+    // the legitimate delayed copy lands at [DELAY_TIME, DELAY_TIME + BURST_LEN]
+    let legit = peak(DELAY_TIME, DELAY_TIME + BURST_LEN);
+    // everything one full max-delay period later must be silent
+    let phantom = peak(
+        MAX_DELAY + DELAY_TIME - 0.02,
+        MAX_DELAY + DELAY_TIME + BURST_LEN,
+    );
+
+    assert!(
+        legit > 0.5,
+        "expected the real delayed signal (peak {legit})"
+    );
+    assert!(
+        phantom < 1e-3,
+        "phantom echo: the burst is re-emitted {MAX_DELAY}s later (peak {phantom})"
+    );
+}
+
 /// A delay in a feedback cycle keeps rendering its decaying echo tail after every handle is
 /// dropped. Its reader flags the writer as breaking a cycle, so the writer reports side effects and
 /// is not reclaimed while the loop is still ringing.
