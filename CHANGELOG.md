@@ -1,5 +1,9 @@
 # Version History
 
+## Unreleased
+
+- Fix: automatically free the resources of non-cyclic `DelayNode`s when their output is unused
+
 ## Version 1.7.0 (2026-08-06)
 
 - Fix: Deduplicate connections between the same nodes
