@@ -1,6 +1,8 @@
 use std::any::Any;
 
-use rubato::{FftFixedInOut, Resampler as _};
+use rubato::audioadapter::Adapter;
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+use rubato::{Fft, FixedSync, Resampler as _};
 
 use crate::{
     context::{AudioContextRegistration, BaseAudioContext},
@@ -287,9 +289,35 @@ impl ResamplerConfig {
     }
 }
 
+/// Read-only adapter over per-channel buffers (e.g. `&[AudioRenderQuantumChannel]` or
+/// `&[Vec<f32>]>`) so they can be fed into `rubato`'s `Adapter`-based API without copying.
+struct ChannelsAdapter<'a, T> {
+    channels: &'a [T],
+}
+
+unsafe impl<T: AsRef<[f32]>> Adapter<f32> for ChannelsAdapter<'_, T> {
+    fn channels(&self) -> usize {
+        self.channels.len()
+    }
+
+    fn frames(&self) -> usize {
+        self.channels.first().map_or(0, |c| c.as_ref().len())
+    }
+
+    unsafe fn read_sample_unchecked(&self, channel: usize, frame: usize) -> f32 {
+        unsafe {
+            *self
+                .channels
+                .get_unchecked(channel)
+                .as_ref()
+                .get_unchecked(frame)
+        }
+    }
+}
+
 struct Resampler {
     config: ResamplerConfig,
-    processor: FftFixedInOut<f32>,
+    processor: Fft<f32>,
     samples_out: Vec<Vec<f32>>,
 }
 
@@ -302,11 +330,16 @@ impl Resampler {
             sample_rate_out,
         } = &config;
 
-        let processor =
-            FftFixedInOut::new(*sample_rate_in, *sample_rate_out, *chunk_size_in, *channels)
-                .unwrap();
+        let processor = Fft::new(
+            *sample_rate_in,
+            *sample_rate_out,
+            *chunk_size_in,
+            *channels,
+            FixedSync::Both,
+        )
+        .unwrap();
 
-        let samples_out = processor.output_buffer_allocate(true);
+        let samples_out = vec![vec![0.; processor.output_frames_max()]; *channels];
 
         Self {
             config,
@@ -324,9 +357,21 @@ impl Resampler {
         debug_assert!(samples_in
             .iter()
             .all(|channel| channel.as_ref().len() == self.processor.input_frames_next()));
+
+        let input = ChannelsAdapter {
+            channels: samples_in,
+        };
+        let frames_out = self.processor.output_frames_max();
+        let mut output = SequentialSliceOfVecs::new_mut(
+            &mut self.samples_out[..],
+            self.config.channels,
+            frames_out,
+        )
+        .unwrap();
+
         let (in_len, out_len) = self
             .processor
-            .process_into_buffer(samples_in, &mut self.samples_out[..], None)
+            .process_into_buffer(&input, &mut output, None)
             .unwrap();
         // All input samples must have been consumed.
         debug_assert_eq!(in_len, samples_in[0].as_ref().len());
