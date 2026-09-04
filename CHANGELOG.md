@@ -1,5 +1,11 @@
 # Version History
 
+## Unreleased
+
+- Fix: a running `ConstantSourceNode` outputting (near) zero now reports its output as silent
+  instead of materializing a zeroed buffer, so downstream `AudioParam`s and `GainNode`s can take
+  their near-zero fast paths again instead of processing at full a-rate cost indefinitely
+
 ## Version 1.7.0 (2026-08-06)
 
 - Fix: Deduplicate connections between the same nodes
