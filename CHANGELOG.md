@@ -10,6 +10,9 @@
   `false` to let a pure-transform worklet subgraph be disposed once all its handles are dropped.
 - `decode_audio_data` and `decode_audio_data_sync` no longer require the reader to be `'static`,
   so an audio source that borrows from the stack can be decoded
+- Fix: a running `ConstantSourceNode` outputting (near) zero now reports its output as silent
+  instead of materializing a zeroed buffer, so downstream `AudioParam`s and `GainNode`s can take
+  their near-zero fast paths again instead of processing at full a-rate cost indefinitely
 
 ## Version 1.7.0 (2026-08-06)
 
