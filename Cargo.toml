@@ -38,7 +38,7 @@ futures-util = { version = "0.3.30", default-features = false, features = [
     "sink",
 ] }
 hound = "3.5"
-hrtf = "0.9"
+hrtf = { git = "https://github.com/DouglasDwyer/hrtf", rev = "d2d0fb5", version = "0.9" }
 llq = "0.1.1"
 log = "0.4"
 num-complex = "0.4"
