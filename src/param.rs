@@ -96,7 +96,8 @@ fn compute_set_target_sample(
     diff: f32, // start_value - end_value
     time: f64,
 ) -> f32 {
-    let exponent = -((time - start_time) / time_constant);
+    let elapsed = (time - start_time).max(0.);
+    let exponent = -(elapsed / time_constant);
     diff.mul_add(exponent.exp() as f32, end_value)
 }
 
@@ -2640,6 +2641,48 @@ mod tests {
         assert_float_eq!(vs[3], 1., abs <= 0.);
         assert_float_eq!(vs[4], 1., abs <= 0.);
         assert_float_eq!(vs[5], 1., abs <= 0.);
+    }
+
+    /// Regression test: a cancelled `set_target` followed by another `set_target` whose
+    /// start time was still in the future left both queued. When the first ended, the
+    /// loop sampled the future one before its own start time, overflowing `exp()` to
+    /// `+inf` and (with `diff == 0.0`) yielding `NaN` that poisoned the buffer the next
+    /// block.
+    #[test]
+    fn test_set_target_at_time_future_start_does_not_produce_nan() {
+        let context = OfflineAudioContext::new(1, 1, 48000.);
+        let opts = AudioParamDescriptor {
+            name: String::new(),
+            automation_rate: AutomationRate::A,
+            default_value: 1.,
+            min_value: 0.,
+            max_value: 2.,
+        };
+        let (param, mut render) = audio_param_pair(opts, context.mock_registration());
+
+        let v = 1.0_f32;
+        let tau = 0.001_f64;
+
+        render.handle_incoming_event(param.set_value_at_time_raw(v, 0.));
+        render.handle_incoming_event(param.set_target_at_time_raw(v, 5., tau));
+        render.handle_incoming_event(param.cancel_and_hold_at_time_raw(6.));
+        // second SetTarget, its start time still far in the future
+        render.handle_incoming_event(param.set_target_at_time_raw(v, 25., tau));
+
+        // block ending at t = 20: the cancelled SetTarget(5) ends at t = 6, the loop
+        // then evaluates SetTarget(25) at next_block_time = 20
+        let vs = render.compute_intrinsic_values(10., 1., 10);
+        assert!(
+            vs.iter().all(|s| s.is_finite()),
+            "block 1 produced non-finite values: {vs:?}"
+        );
+
+        // next block: the poisoned intrinsic_value leaks into the buffer
+        let vs = render.compute_intrinsic_values(20., 1., 10);
+        assert!(
+            vs.iter().all(|s| s.is_finite()),
+            "block 2 produced non-finite values: {vs:?}"
+        );
     }
 
     #[test]

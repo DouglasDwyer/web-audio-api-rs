@@ -4,6 +4,9 @@
 
 - `decode_audio_data` and `decode_audio_data_sync` no longer require the reader to be `'static`,
   so an audio source that borrows from the stack can be decoded
+- Fix: a `set_target` automation whose start time is still in the future no longer produces a `NaN`
+  (from an `f32` `exp()` overflow) when its curve is sampled before that start time, which could
+  briefly snap the param to its default value
 
 ## Version 1.7.0 (2026-08-06)
 
