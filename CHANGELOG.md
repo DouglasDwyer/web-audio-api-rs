@@ -13,6 +13,9 @@
 - Fix: a running `ConstantSourceNode` outputting (near) zero now reports its output as silent
   instead of materializing a zeroed buffer, so downstream `AudioParam`s and `GainNode`s can take
   their near-zero fast paths again instead of processing at full a-rate cost indefinitely
+- Fix: `PannerNode` HRTF tail time no longer gets silently exhausted by earlier sounds -
+  `tail_time_counter` is now reset whenever the panner has active input, so every sound gets its
+  full ~12 ms HRTF ring-out instead of only the first one played on a given `PannerNode`
 
 ## Version 1.7.0 (2026-08-06)
 
