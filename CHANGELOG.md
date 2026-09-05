@@ -18,6 +18,9 @@
   full ~12 ms HRTF ring-out instead of only the first one played on a given `PannerNode`
 - `DelayNode` skips its per-sample interpolation and emits silence directly once its input has
   been silent for longer than its `maxDelayTime`
+- Fix: an `AudioParam` automation event whose start time is still beyond the current block is no
+  longer evaluated early (its curve sampled before its own start time), which could produce a `NaN`
+  from a `set_target` `exp()` overflow or a wrong value from a `set_value_curve`
 
 ## Version 1.7.0 (2026-08-06)
 
