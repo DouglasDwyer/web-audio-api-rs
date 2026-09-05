@@ -7,6 +7,8 @@
 - Fix: automatically free the resources of non-cyclic `DelayNode`s when their output is unused
 - Fix: a fire-and-forget `DelayNode` no longer re-emits a phantom copy of its input one
   `max_delay_time` later, after the `DelayWriter` end has been reclaimed
+- `DelayNode` skips its per-sample interpolation and emits silence directly once its input has
+  been silent for longer than its `maxDelayTime`
 
 ## Version 1.7.0 (2026-08-06)
 
