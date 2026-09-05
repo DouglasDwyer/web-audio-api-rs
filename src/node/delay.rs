@@ -317,6 +317,9 @@ impl DelayNode {
         let in_cycle = Rc::new(Cell::new(false));
         let in_cycle_clone = Rc::clone(&in_cycle);
 
+        let consecutive_zero_quanta = Rc::new(Cell::new(0_usize));
+        let consecutive_zero_quanta_clone = Rc::clone(&consecutive_zero_quanta);
+
         let node = context.base().register(move |writer_registration| {
             let node = context.base().register(move |reader_registration| {
                 let param_opts = AudioParamDescriptor {
@@ -338,6 +341,7 @@ impl DelayNode {
                     in_cycle: in_cycle_clone,
                     flush_quanta: None,
                     latest_frame_written: latest_frame_written_clone,
+                    consecutive_zero_quanta: consecutive_zero_quanta_clone,
                 };
 
                 let node = DelayNode {
@@ -356,6 +360,7 @@ impl DelayNode {
                 writer_dropped,
                 latest_frame_written,
                 in_cycle,
+                consecutive_zero_quanta,
             };
 
             (node, Box::new(writer_render))
@@ -384,6 +389,8 @@ struct DelayWriter {
     latest_frame_written: Rc<Cell<u64>>,
     writer_dropped: Rc<Cell<bool>>,
     in_cycle: Rc<Cell<bool>>,
+    // consecutive silent input quanta, read by the reader to short-circuit to silence
+    consecutive_zero_quanta: Rc<Cell<usize>>,
 }
 
 // SAFETY:
@@ -444,13 +451,23 @@ impl AudioProcessor for DelayWriter {
         // side as Reader do not access the "real" input
         self.check_ring_buffer_up_down_mix(&input);
 
+        let input_is_silent = input.is_silent();
+
         // populate ring buffer
         let mut buffer = self.ring_buffer.borrow_mut();
+        let capacity = buffer.capacity();
         buffer[self.index] = input;
 
         // increment cursor and last written frame
-        self.index = (self.index + 1) % buffer.capacity();
+        self.index = (self.index + 1) % capacity;
         self.latest_frame_written.set(scope.current_frame);
+
+        if input_is_silent {
+            let next = (self.consecutive_zero_quanta.get() + 1).min(capacity + 1);
+            self.consecutive_zero_quanta.set(next);
+        } else {
+            self.consecutive_zero_quanta.set(0);
+        }
 
         // The writer end does not produce output,
         // clear the buffer so that it can be reused
@@ -502,6 +519,8 @@ struct DelayReader {
     // number of render quanta the reader may still emit after the writer was decommissioned,
     // to flush the audio that is already buffered; `None` while the writer is still alive
     flush_quanta: Option<usize>,
+    // consecutive silent input quanta seen by the writer; see `DelayWriter`
+    consecutive_zero_quanta: Rc<Cell<usize>>,
 }
 
 // SAFETY:
@@ -547,9 +566,44 @@ impl AudioProcessor for DelayReader {
             // https://github.com/orottier/web-audio-api-rs/pull/198#discussion_r945326200
         }
 
-        // compute all playback infos for this block
         let delay = params.get(&self.delay_time);
         let sample_rate = scope.sample_rate as f64;
+
+        if ring_buffer.len() < self.consecutive_zero_quanta.get() {
+            output.make_silent();
+        } else {
+            self.render(&delay, sample_rate, &ring_buffer, output);
+        }
+
+        match &mut self.flush_quanta {
+            Some(0) => return false,
+            Some(remaining) => *remaining -= 1,
+            None if self.writer_dropped.get() => {
+                let max_delay = delay.iter().copied().fold(0.0_f32, f32::max);
+                let delay_samples = f64::from(max_delay) * sample_rate;
+                self.flush_quanta =
+                    Some((delay_samples / RENDER_QUANTUM_SIZE as f64).ceil() as usize);
+            }
+            None => {}
+        }
+
+        // increment ring buffer cursor
+        self.index = (self.index + 1) % ring_buffer.capacity();
+
+        true
+    }
+}
+
+impl DelayReader {
+    /// Interpolate this block's output out of the ring buffer, per `delay_time`.
+    fn render(
+        &self,
+        delay: &[f32],
+        sample_rate: f64,
+        ring_buffer: &[AudioRenderQuantum],
+        output: &mut AudioRenderQuantum,
+    ) {
+        // compute all playback infos for this block
         let dt = 1. / sample_rate;
         let quantum_duration = RENDER_QUANTUM_SIZE as f64 * dt;
         let ring_size = ring_buffer.len() as i32;
@@ -668,27 +722,8 @@ impl AudioProcessor for DelayReader {
         if !is_actively_processing {
             output.make_silent();
         }
-
-        match &mut self.flush_quanta {
-            Some(0) => return false,
-            Some(remaining) => *remaining -= 1,
-            None if self.writer_dropped.get() => {
-                let max_delay = delay.iter().copied().fold(0.0_f32, f32::max);
-                let delay_samples = f64::from(max_delay) * sample_rate;
-                self.flush_quanta =
-                    Some((delay_samples / RENDER_QUANTUM_SIZE as f64).ceil() as usize);
-            }
-            None => {}
-        }
-
-        // increment ring buffer cursor
-        self.index = (self.index + 1) % ring_buffer.capacity();
-
-        true
     }
-}
 
-impl DelayReader {
     #[inline(always)]
     fn get_playback_infos(
         delay: f64,
@@ -1207,5 +1242,53 @@ mod tests {
         expected[64..64 + 120].fill(1.);
 
         assert_float_eq!(channel[..], expected[..], abs_all <= 1e-5);
+    }
+
+    /// Render an impulse train through a delay and return the output. `max_delay_time`
+    /// sizes the ring buffer: a small value lets the reader's silent fast path engage,
+    /// a value longer than the whole render keeps it on the interpolating slow path.
+    fn render_delay_with_impulses(max_delay_time: f64, impulse_blocks: &[usize]) -> Vec<f32> {
+        let sample_rate = 48_000.;
+        let render_quanta = 60;
+        let last_impulse = impulse_blocks.iter().copied().max().unwrap_or(0);
+
+        let mut context = OfflineAudioContext::new(1, render_quanta * 128, sample_rate);
+
+        let delay = context.create_delay(max_delay_time);
+        delay.delay_time.set_value(200. / sample_rate);
+        delay.connect(&context.destination());
+
+        let mut buf = context.create_buffer(1, last_impulse * 128 + 1, sample_rate);
+        let data = buf.get_channel_data_mut(0);
+        for &block in impulse_blocks {
+            data[block * 128] = 1.;
+        }
+
+        let mut src = context.create_buffer_source();
+        src.connect(&delay);
+        src.set_buffer(buf);
+        src.start_at(0.);
+
+        context.start_rendering_sync().get_channel_data(0).to_vec()
+    }
+
+    /// Once the input has been silent for longer than the ring buffer the reader
+    /// short-circuits to `make_silent()`. That must be bit-identical to letting the
+    /// slow path interpolate the (silent) ring buffer.
+    #[test]
+    fn test_eager_silence_fast_path_matches_slow_path() {
+        let fast = render_delay_with_impulses(0.01, &[0]);
+        let slow = render_delay_with_impulses(60. * 128. / 48_000. + 1., &[0]);
+        assert_float_eq!(fast[..], slow[..], abs_all <= 0.);
+    }
+
+    /// The silent-quanta counter must reset when input resumes, so an impulse after
+    /// a long gap (well past where the fast path engaged) is still delayed correctly.
+    #[test]
+    fn test_delay_tracks_input_resuming_after_long_silence() {
+        let fast = render_delay_with_impulses(0.01, &[0, 40]);
+        let slow = render_delay_with_impulses(60. * 128. / 48_000. + 1., &[0, 40]);
+        assert_float_eq!(fast[..], slow[..], abs_all <= 0.);
+        assert!(fast[40 * 128..].iter().any(|s| *s != 0.));
     }
 }
