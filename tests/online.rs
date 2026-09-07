@@ -172,6 +172,40 @@ fn test_none_sink_id() {
     );
 }
 
+/// Regression test: `set_sink_id_sync` called immediately after construction used to race the
+/// live render thread for the initial `Startup` message on a shared channel, which could pick an
+/// unsafe recovery path and hang forever. Several concurrent workers create contention that makes
+/// the race reliably manifest. Requires a real output device, so it does not run by default:
+/// `cargo test -- --ignored`.
+#[test]
+#[ignore = "requires a real audio output device"]
+fn test_immediate_sink_change_does_not_race() {
+    let (done_tx, done_rx) = crossbeam_channel::bounded(1);
+
+    thread::spawn(move || {
+        thread::scope(|scope| {
+            for w in 0..8 {
+                scope.spawn(move || {
+                    for i in 0..10 {
+                        let context = AudioContext::default();
+                        context
+                            .set_sink_id_sync("none".into())
+                            .unwrap_or_else(|e| panic!("worker {w} iteration {i} failed: {e}"));
+                        assert_eq!(context.sink_id(), "none");
+                        context.close_sync();
+                    }
+                });
+            }
+        });
+        let _ = done_tx.send(());
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_secs(60)).is_ok(),
+        "set_sink_id_sync hung, likely racing the render thread for its Startup message"
+    );
+}
+
 #[test]
 fn test_weird_sample_rate() {
     let options = AudioContextOptions {

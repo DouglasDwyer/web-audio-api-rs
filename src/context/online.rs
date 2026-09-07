@@ -385,34 +385,18 @@ impl AudioContext {
         log::debug!("SinkChange: locking message channel");
         let ctrl_msg_send = self.base.lock_control_msg_sender();
 
-        // Flush out the ctrl msg receiver, cache
-        let mut pending_msgs: Vec<_> = self.render_thread_init.ctrl_msg_recv.try_iter().collect();
-
-        // Acquire the active audio graph from the current render thread, shutting it down
-        let graph = if matches!(pending_msgs.first(), Some(ControlMessage::Startup { .. })) {
-            // Handle the edge case where the previous backend was suspended for its entire lifetime.
-            // In this case, the `Startup` control message was never processed.
-            log::debug!("SinkChange: recover unstarted graph");
-
-            let msg = pending_msgs.remove(0);
-            match msg {
-                ControlMessage::Startup { graph } => graph,
-                _ => unreachable!(),
-            }
-        } else {
-            // Acquire the audio graph from the current render thread, shutting it down
-            log::debug!("SinkChange: recover graph from render thread");
-
-            let (graph_send, graph_recv) = crossbeam_channel::bounded(1);
-            let message = ControlMessage::CloseAndRecycle { sender: graph_send };
-            ctrl_msg_send.send(message).unwrap();
-            if original_state == AudioContextState::Suspended {
-                // We must wake up the render thread to be able to handle the shutdown.
-                // No new audio will be produced because it will receive the shutdown command first.
-                backend_manager_guard.resume()?;
-            }
-            graph_recv.recv().unwrap()
-        };
+        // Acquire the active audio graph from the render thread, shutting it down.
+        // We always wait for it instead of racing it for messages on `ctrl_msg_recv`.
+        log::debug!("SinkChange: recover graph from render thread");
+        let (graph_send, graph_recv) = crossbeam_channel::bounded(1);
+        let message = ControlMessage::CloseAndRecycle { sender: graph_send };
+        ctrl_msg_send.send(message).unwrap();
+        if original_state == AudioContextState::Suspended {
+            // Wake the render thread so it can process the shutdown message.
+            // This also covers a context that hasn't started yet, since it reads as Suspended too.
+            backend_manager_guard.resume()?;
+        }
+        let graph = graph_recv.recv().unwrap();
 
         log::debug!("SinkChange: closing audio stream");
         backend_manager_guard.close()?;
@@ -436,11 +420,6 @@ impl AudioContext {
         // send the audio graph to the new render thread
         let message = ControlMessage::Startup { graph };
         ctrl_msg_send.send(message).unwrap();
-
-        // flush the cached msgs
-        pending_msgs
-            .into_iter()
-            .for_each(|m| self.base().send_control_msg(m));
 
         // explicitly release the lock to prevent concurrent render threads
         drop(backend_manager_guard);

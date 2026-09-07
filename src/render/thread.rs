@@ -474,17 +474,18 @@ impl RenderThread {
         // handle addition/removal of nodes/edges
         self.handle_control_messages();
 
-        // if the thread is still booting, suspended, or shutting down, fill with silence
-        if self.suspended || !self.graph.as_ref().is_some_and(Graph::is_active) {
-            output_buffer.fill(S::from_sample_(0.));
-            return;
-        }
-
         // The audio graph is rendered in chunks of RENDER_QUANTUM_SIZE frames.  But some audio backends
         // may not be able to emit chunks of this size.
         let chunk_size = RENDER_QUANTUM_SIZE * self.number_of_channels;
 
         for data in output_buffer.chunks_mut(chunk_size) {
+            // A control message handled at the end of the previous chunk (e.g. `CloseAndRecycle`)
+            // may have torn the graph down; re-check every chunk instead of only once per callback.
+            if self.suspended || !self.graph.as_ref().is_some_and(Graph::is_active) {
+                data.fill(S::from_sample_(0.));
+                continue;
+            }
+
             // update time
             let current_frame = self
                 .frames_played
