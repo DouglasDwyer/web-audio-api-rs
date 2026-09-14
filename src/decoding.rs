@@ -1,3 +1,5 @@
+//! Standalone media decoding, independent of a live [`crate::context::AudioContext`]
+
 use std::error::Error;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -12,9 +14,27 @@ use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::meta::MetadataOptions;
 
-pub(crate) fn decode_media_data<R: std::io::Read + Send + Sync>(
+/// Decode an [`AudioBuffer`] from a given input stream, at its native sample rate.
+///
+/// The current implementation supports Symphonia's audio formats and codecs, including AIFF,
+/// CAF, ISO/MP4, MKV/WebM, Ogg, WAV, AAC, ADPCM, ALAC, FLAC, MP1/MP2/MP3, PCM, and Vorbis.
+///
+/// The input parameter can be any byte stream (not just an array). This means you can decode
+/// audio data from a file, network stream, or an in memory buffer, and any other
+/// [`std::io::Read`] implementer. The data is buffered internally so you should not wrap the
+/// source in a `BufReader`.
+///
+/// Unlike [`crate::context::BaseAudioContext::decode_audio_data`] and
+/// [`crate::context::BaseAudioContext::decode_audio_data_sync`], this function does not require
+/// a live audio context, and it never resamples the result: the returned buffer keeps the
+/// sample rate of the original media. Call [`AudioBuffer::resample`] afterwards if you need a
+/// specific sample rate.
+///
+/// # Errors
+///
+/// This method returns an Error in various cases (IO, mime sniffing, decoding).
+pub fn decode_media_data<R: std::io::Read + Send + Sync>(
     input: R,
-    target_sample_rate: f32,
 ) -> Result<AudioBuffer, Box<dyn std::error::Error + Send + Sync>> {
     let mut sample_rate = None;
     let mut buffer: Option<AudioBuffer> = None;
@@ -45,10 +65,7 @@ pub(crate) fn decode_media_data<R: std::io::Read + Send + Sync>(
         }
     }
 
-    let mut buffer = buffer.unwrap_or_else(|| AudioBuffer::from(vec![vec![]], target_sample_rate));
-
-    // Resample to desired rate (no-op if already matching).
-    buffer.resample(target_sample_rate);
+    let buffer = buffer.unwrap_or_else(|| AudioBuffer::from(vec![vec![]], 48000.));
 
     Ok(buffer)
 }

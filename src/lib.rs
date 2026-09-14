@@ -61,7 +61,7 @@ mod io;
 mod analysis;
 mod message;
 
-mod decoding;
+pub mod decoding;
 
 mod media_element;
 pub use media_element::MediaElement;
