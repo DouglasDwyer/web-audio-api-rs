@@ -300,15 +300,15 @@ impl AudioBuffer {
     }
 
     /// Resample to the desired sample rate. The method performs a simple linear
-    /// interpolation an keep the first and last sample intact. The new number
-    /// of samples is always ceiled according the ratio defined by old and new
-    /// sample rates.
+    /// interpolation and keeps the first and last sample intact. The new number
+    /// of samples is always ceiled according to the ratio defined by the old and
+    /// new sample rates.
     ///
     /// # Panics
     ///
-    /// This function will panic if:
-    /// - the given sample rate is zero
-    pub(crate) fn resample(&mut self, sample_rate: f32) {
+    /// This function will panic if the given sample rate is not a valid audio sample rate
+    /// (i.e. not in the range `3000. ..= 768000.`).
+    pub fn resample(&mut self, sample_rate: f32) {
         assert_valid_sample_rate(sample_rate);
 
         // if requested sample rate is very similar, do not resample

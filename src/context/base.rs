@@ -69,7 +69,9 @@ pub trait BaseAudioContext {
         &self,
         input: R,
     ) -> Result<AudioBuffer, Box<dyn std::error::Error + Send + Sync>> {
-        decode_media_data(input, self.sample_rate())
+        let mut buffer = decode_media_data(input)?;
+        buffer.resample(self.sample_rate());
+        Ok(buffer)
     }
 
     /// Decode an [`AudioBuffer`] from a given input stream.
@@ -98,7 +100,11 @@ pub trait BaseAudioContext {
     ) -> impl Future<Output = Result<AudioBuffer, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a
     {
         let sample_rate = self.sample_rate();
-        async move { decode_media_data(input, sample_rate) }
+        async move {
+            let mut buffer = decode_media_data(input)?;
+            buffer.resample(sample_rate);
+            Ok(buffer)
+        }
     }
 
     /// Create an new "in-memory" `AudioBuffer` with the given number of channels,
