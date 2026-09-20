@@ -25,6 +25,8 @@
   from a `set_target` `exp()` overflow or a wrong value from a `set_value_curve`
 - Fix: AudioBufferSourceNode would hang the render thread on an extremely narrow loop region (e.g. `loopStart` clamped to just below `loopEnd`)
 - Fix: AudioBufferSourceNode could panic splicing across the loop seam when `loopStart` fell within the buffer's last sample
+- Added `AudioWorkletProcessor::suspend_on_silent_input` to let a worklet opt out of being called
+  for render quanta where its input is silent and it has already reported no tail time
 
 ## Version 1.7.0 (2026-08-06)
 
