@@ -37,11 +37,13 @@ impl AudioNodeIdProvider {
         }
     }
 
-    fn get(&self) -> AudioNodeId {
+    /// Returns a fresh id, and whether it was recycled from a previously decommissioned node
+    /// (as opposed to being newly minted and thus never seen before).
+    fn get(&self) -> (AudioNodeId, bool) {
         if let Some(available_id) = self.id_consumer.lock().unwrap().pop() {
-            llq::Node::into_inner(available_id)
+            (llq::Node::into_inner(available_id), true)
         } else {
-            AudioNodeId(self.id_inc.fetch_add(1, Ordering::Relaxed))
+            (AudioNodeId(self.id_inc.fetch_add(1, Ordering::Relaxed)), false)
         }
     }
 }
@@ -237,17 +239,20 @@ impl ConcreteBaseAudioContext {
         f: F,
     ) -> T {
         // create a unique id for this node
-        let id = self.inner.audio_node_id_provider.get();
+        let (id, recycled) = self.inner.audio_node_id_provider.get();
 
         // If this id was recycled from a previously dropped node, purge any stale connection
         // records that still point to it as their `to` side (see `mark_node_dropped`). Without
         // this, a still-alive upstream node's stale entry could make a future `connect()` call
-        // to this brand new node silently believe it is a no-op duplicate.
-        self.inner
-            .connections
-            .lock()
-            .unwrap()
-            .retain(|&(_from, _output, to, _input)| to != id);
+        // to this brand new node silently believe it is a no-op duplicate. A freshly minted id
+        // can never appear in an existing entry, so skip the scan entirely in that (common) case.
+        if recycled {
+            self.inner
+                .connections
+                .lock()
+                .unwrap()
+                .retain(|&(_from, _output, to, _input)| to != id);
+        }
 
         let registration = AudioContextRegistration {
             id,
@@ -583,11 +588,11 @@ mod tests {
     fn test_provide_node_id() {
         let (mut id_producer, id_consumer) = llq::Queue::new().split();
         let provider = AudioNodeIdProvider::new(id_consumer);
-        assert_eq!(provider.get().0, 0); // newly assigned
-        assert_eq!(provider.get().0, 1); // newly assigned
+        assert_eq!(provider.get(), (AudioNodeId(0), false)); // newly assigned
+        assert_eq!(provider.get(), (AudioNodeId(1), false)); // newly assigned
         id_producer.push(llq::Node::new(AudioNodeId(0)));
-        assert_eq!(provider.get().0, 0); // reused
-        assert_eq!(provider.get().0, 2); // newly assigned
+        assert_eq!(provider.get(), (AudioNodeId(0), true)); // reused
+        assert_eq!(provider.get(), (AudioNodeId(2), false)); // newly assigned
     }
 
     #[test]
