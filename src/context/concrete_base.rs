@@ -238,6 +238,17 @@ impl ConcreteBaseAudioContext {
     ) -> T {
         // create a unique id for this node
         let id = self.inner.audio_node_id_provider.get();
+
+        // If this id was recycled from a previously dropped node, purge any stale connection
+        // records that still point to it as their `to` side (see `mark_node_dropped`). Without
+        // this, a still-alive upstream node's stale entry could make a future `connect()` call
+        // to this brand new node silently believe it is a no-op duplicate.
+        self.inner
+            .connections
+            .lock()
+            .unwrap()
+            .retain(|&(_from, _output, to, _input)| to != id);
+
         let registration = AudioContextRegistration {
             id,
             context: self.clone(),
@@ -338,12 +349,22 @@ impl ConcreteBaseAudioContext {
         let message = ControlMessage::ControlHandleDropped { id };
         self.send_control_msg(message);
 
-        // Clear the connection administration for this node, the node id may be recycled later
+        // Clear this node's own outgoing connection records: it can never call connect() or
+        // disconnect() again, so these entries are dead weight from here on.
+        //
+        // Note we deliberately do NOT clear entries where this node is the `to` side here. Those
+        // belong to *other*, possibly still-alive, nodes (the `from` side), and per the WebAudio
+        // spec an AudioNode's outgoing connections are only meant to change via connect()/
+        // disconnect() calls made on that node (or that node's own disposal) - not as a side
+        // effect of an unrelated downstream node being dropped. Prematurely erasing them here
+        // made a subsequent `disconnect()` on the upstream node silently do nothing. Any stale
+        // `to` entries left behind are harmless and get cleaned up lazily in `register()`, the
+        // one place where this id could actually be handed out again.
         self.inner
             .connections
             .lock()
             .unwrap()
-            .retain(|&(from, _output, to, _input)| from != id && to != id);
+            .retain(|&(from, _output, _to, _input)| from != id);
     }
 
     /// Inform render thread that this node can act as a cycle breaker
@@ -617,5 +638,46 @@ mod tests {
 
         // dropping should clear connections administration
         assert!(context.base().inner.connections.lock().unwrap().is_empty());
+    }
+
+    /// Regression test: dropping the *downstream* node of a connection silently erases the
+    /// *upstream* node's own connection record, even though the upstream node is still alive
+    /// and never called `disconnect()` itself.
+    ///
+    /// This means a later `node1.disconnect()` call becomes an unreported no-op: per
+    /// `ConcreteBaseAudioContext::disconnect`, the no-arg form only panics when it found nothing
+    /// to disconnect while an explicit target is given, so this failure is invisible to callers.
+    /// Per the spec, an `AudioNode`'s outgoing connections are only defined to change via
+    /// `connect`/`disconnect` calls on that node (or that node's own disposal) - not as a side
+    /// effect of an unrelated downstream node's handle being dropped.
+    #[test]
+    fn test_downstream_drop_erases_upstream_connection_record() {
+        let context = OfflineAudioContext::new(1, 128, 48000.);
+
+        let node1 = context.create_constant_source();
+        let node2 = context.create_gain();
+
+        node1.connect(&node2);
+        assert_eq!(context.base().inner.connections.lock().unwrap().len(), 1);
+
+        // node2 is dropped, but node1 (the source side of the connection) is still alive and
+        // has not called disconnect().
+        let node2_id = node2.registration().id();
+        drop(node2);
+
+        // BUG: node1's own connection record just vanished, even though node1 never asked for
+        // that and still believes it is connected.
+        assert!(
+            context
+                .base()
+                .inner
+                .connections
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|&(from, _output, to, _input)| from == node1.registration().id()
+                    && to == node2_id),
+            "node1's connection record was erased by node2's drop, not by node1's own disconnect()"
+        );
     }
 }
