@@ -27,6 +27,8 @@
 - Fix: AudioBufferSourceNode could panic splicing across the loop seam when `loopStart` fell within the buffer's last sample
 - Added `AudioWorkletProcessor::suspend_on_silent_input` to let a worklet opt out of being called
   for render quanta where its input is silent and it has already reported no tail time
+- `DelayNode` skips its per-sample interpolation and emits silence directly once its input has
+  been silent for longer than its `maxDelayTime`
 
 ## Version 1.7.0 (2026-08-06)
 
