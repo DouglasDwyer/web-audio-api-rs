@@ -304,10 +304,9 @@ impl DelayNode {
         let shared_ring_buffer = Rc::new(RefCell::new(ring_buffer));
         let shared_ring_buffer_clone = Rc::clone(&shared_ring_buffer);
 
-        // shared flag, set by the writer when it is decommissioned so the reader knows to flush
-        // its buffered tail and then stop
-        let writer_dropped = Rc::new(Cell::new(false));
-        let writer_dropped_clone = Rc::clone(&writer_dropped);
+        // shared value set by the writer when it is dropped
+        let dropped_quantum_index = Rc::new(Cell::<Option<u64>>::new(None));
+        let dropped_quantum_index_clone = Rc::clone(&dropped_quantum_index);
 
         // shared value for reader/writer to determine who was rendered first,
         // this will indicate if the delay node acts as a cycle breaker
@@ -334,7 +333,7 @@ impl DelayNode {
                     delay_time: proc,
                     ring_buffer: shared_ring_buffer_clone,
                     index: 0,
-                    writer_dropped: writer_dropped_clone,
+                    dropped_quantum_index: dropped_quantum_index_clone,
                     in_cycle: in_cycle_clone,
                     flush_quanta: None,
                     latest_frame_written: latest_frame_written_clone,
@@ -353,7 +352,7 @@ impl DelayNode {
             let writer_render = DelayWriter {
                 ring_buffer: shared_ring_buffer,
                 index: 0,
-                writer_dropped,
+                dropped_quantum_index,
                 latest_frame_written,
                 in_cycle,
             };
@@ -380,9 +379,9 @@ impl DelayNode {
 
 struct DelayWriter {
     ring_buffer: Rc<RefCell<Vec<AudioRenderQuantum>>>,
-    index: usize,
+    index: u64,
     latest_frame_written: Rc<Cell<u64>>,
-    writer_dropped: Rc<Cell<bool>>,
+    dropped_quantum_index: Rc<Cell<Option<u64>>>,
     in_cycle: Rc<Cell<bool>>,
 }
 
@@ -414,7 +413,7 @@ trait RingBufferChecker {
 
 impl Drop for DelayWriter {
     fn drop(&mut self) {
-        self.writer_dropped.set(true);
+        self.dropped_quantum_index.set(Some(self.index));
     }
 }
 
@@ -446,10 +445,11 @@ impl AudioProcessor for DelayWriter {
 
         // populate ring buffer
         let mut buffer = self.ring_buffer.borrow_mut();
-        buffer[self.index] = input;
+        let wrapped_index = (self.index % (buffer.capacity() as u64)) as usize;
+        buffer[wrapped_index] = input;
 
         // increment cursor and last written frame
-        self.index = (self.index + 1) % buffer.capacity();
+        self.index += 1;
         self.latest_frame_written.set(scope.current_frame);
 
         // The writer end does not produce output,
@@ -495,10 +495,10 @@ impl DelayWriter {
 struct DelayReader {
     delay_time: AudioParamId,
     ring_buffer: Rc<RefCell<Vec<AudioRenderQuantum>>>,
-    index: usize,
+    index: u64,
     latest_frame_written: Rc<Cell<u64>>,
     in_cycle: Rc<Cell<bool>>,
-    writer_dropped: Rc<Cell<bool>>,
+    dropped_quantum_index: Rc<Cell<Option<u64>>>,
     // number of render quanta the reader may still emit after the writer was decommissioned,
     // to flush the audio that is already buffered; `None` while the writer is still alive
     flush_quanta: Option<usize>,
@@ -531,13 +531,21 @@ impl AudioProcessor for DelayReader {
         // and Reader as the order of processing between them is not guaranteed.
         self.check_ring_buffer_size(output);
 
+        let last_written_index = self.dropped_quantum_index.get();
+        if matches!(last_written_index, Some(index) if index <= self.index) {
+            // We are reading beyond the dropped writer's quanta, so clear the buffers to silence.
+            let mut ring_buffer_mut = self.ring_buffer.borrow_mut();
+            let ring_index = (self.index % (ring_buffer_mut.capacity() as u64)) as usize;
+            ring_buffer_mut[ring_index].make_silent();
+        }
+
         let ring_buffer = self.ring_buffer.borrow();
 
         // we need to rely on ring buffer to know the actual number of output channels
         let number_of_channels = ring_buffer[0].number_of_channels();
         output.set_number_of_channels(number_of_channels);
 
-        if !self.in_cycle.get() && !self.writer_dropped.get() {
+        if !self.in_cycle.get() && self.dropped_quantum_index.get().is_none() {
             // check the latest written frame by the delay writer
             let latest_frame_written = self.latest_frame_written.get();
             // if the delay writer has not rendered before us, the cycle breaker has been applied
@@ -553,7 +561,7 @@ impl AudioProcessor for DelayReader {
         let dt = 1. / sample_rate;
         let quantum_duration = RENDER_QUANTUM_SIZE as f64 * dt;
         let ring_size = ring_buffer.len() as i32;
-        let ring_index = self.index as i32;
+        let ring_index = (self.index % (ring_size as u64)) as i32;
         let mut playback_infos = [PlaybackInfo::default(); RENDER_QUANTUM_SIZE];
 
         if delay.len() == 1 {
@@ -669,22 +677,18 @@ impl AudioProcessor for DelayReader {
             output.make_silent();
         }
 
-        match &mut self.flush_quanta {
-            Some(0) => return false,
-            Some(remaining) => *remaining -= 1,
-            None if self.writer_dropped.get() => {
-                let max_delay = delay.iter().copied().fold(0.0_f32, f32::max);
-                let delay_samples = f64::from(max_delay) * sample_rate;
-                self.flush_quanta =
-                    Some((delay_samples / RENDER_QUANTUM_SIZE as f64).ceil() as usize);
+        // increment ring buffer cursor
+        self.index += 1;
+
+        if last_written_index.is_some() {
+            if let Some(remaining) = &mut self.flush_quanta {
+                *remaining = remaining.saturating_sub(1);
+            } else {
+                self.flush_quanta = Some(ring_buffer.capacity());
             }
-            None => {}
         }
 
-        // increment ring buffer cursor
-        self.index = (self.index + 1) % ring_buffer.capacity();
-
-        true
+        self.flush_quanta.is_none_or(|x| 0 < x)
     }
 }
 
