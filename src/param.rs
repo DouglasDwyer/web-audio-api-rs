@@ -249,8 +249,12 @@ impl AudioParamEventTimeline {
     }
 
     fn sort(&mut self) {
-        self.inner
-            .sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+        self.inner.sort_by(|a, b| {
+            a.cancel_time
+                .unwrap_or(a.time)
+                .partial_cmp(&b.cancel_time.unwrap_or(b.time))
+                .unwrap()
+        });
         self.dirty = false;
     }
 
@@ -879,15 +883,16 @@ impl AudioParamProcessor {
             self.event_timeline.sort();
 
             for queued in self.event_timeline.iter_mut() {
+                let queued_time = queued.cancel_time.unwrap_or(queued.time);
                 // closest before cancel time: if several events at same time,
                 // we want the last one
-                if queued.time >= t1 && queued.time <= event.time {
-                    t1 = queued.time;
+                if queued_time >= t1 && queued_time <= event.time {
+                    t1 = queued_time;
                     e1 = Some(queued);
                     // closest after cancel time: if several events at same time,
                     // we want the first one
-                } else if queued.time < t2 && queued.time > event.time {
-                    t2 = queued.time;
+                } else if queued_time < t2 && queued_time > event.time {
+                    t2 = queued_time;
                     e2 = Some(queued);
                 }
             }
@@ -1098,7 +1103,7 @@ impl AudioParamProcessor {
         let event = self.event_timeline.peek().unwrap();
         let last_event = self.last_event.as_ref().unwrap();
 
-        let start_time = last_event.time;
+        let start_time = last_event.cancel_time.unwrap_or(last_event.time);
         let mut end_time = event.time;
         // compute duration before clapping `end_time` to`cancel_time`, to keep
         // declared slope of the ramp consistent
@@ -1177,7 +1182,7 @@ impl AudioParamProcessor {
         let event = self.event_timeline.peek().unwrap();
         let last_event = self.last_event.as_ref().unwrap();
 
-        let start_time = last_event.time;
+        let start_time = last_event.cancel_time.unwrap_or(last_event.time);
         let mut end_time = event.time;
         // compute duration before clapping `end_time` to `cancel_time`, to keep
         // declared slope of the ramp consistent
@@ -3625,5 +3630,107 @@ mod tests {
         expected[0] = 2.;
 
         assert_float_eq!(output.channel_data(0)[..], &expected[..], abs_all <= 0.);
+    }
+
+    // Regression test: a ramp scheduled right after a cancel_and_hold_at_time
+    // call can have a smaller raw `.time` than the ramp it truncated, which
+    // must not affect timeline ordering.
+    #[test]
+    fn test_cancel_and_hold_then_ramp_keeps_timeline_order() {
+        let context = OfflineAudioContext::new(1, 1, 48000.);
+        let opts = AudioParamDescriptor {
+            name: String::new(),
+            automation_rate: AutomationRate::A,
+            default_value: 0.,
+            min_value: 0.,
+            max_value: 200.,
+        };
+        let (param, mut render) = audio_param_pair(opts, context.mock_registration());
+
+        // ramp1: 0 -> 10 over [0, 10] (raw `.time` = 10)
+        render.handle_incoming_event(param.linear_ramp_to_value_at_time_raw(10., 10.));
+        // cancel ramp1 at t=5 -> holds at value 5, ramp1.cancel_time = Some(5),
+        // but ramp1.time is still 10
+        render.handle_incoming_event(param.cancel_and_hold_at_time_raw(5.));
+        // ramp2: from (5, 5) to (7, 100) -- raw `.time` = 7, which is SMALLER
+        // than ramp1's raw `.time` (10) but must still be sorted AFTER ramp1's
+        // effective end (5)
+        render.handle_incoming_event(param.linear_ramp_to_value_at_time_raw(100., 7.));
+
+        let vs = render.compute_intrinsic_values(0., 1., 10);
+        // t=0..5: original ramp1, linear 0 -> 5
+        // t=5..7: ramp2, linear 5 -> 100 (slope 47.5/s)
+        // t=7..: held at 100
+        assert_float_eq!(
+            vs,
+            &[0., 1., 2., 3., 4., 5., 52.5, 100., 100., 100.][..],
+            abs_all <= 0.
+        );
+    }
+
+    // Regression test: same timeline-ordering scenario as above, with
+    // different values, to rule out a coincidental pass.
+    #[test]
+    fn test_cancel_and_hold_chained_ramps_keep_timeline_order() {
+        let context = OfflineAudioContext::new(1, 1, 48000.);
+        let opts = AudioParamDescriptor {
+            name: String::new(),
+            automation_rate: AutomationRate::A,
+            default_value: 0.,
+            min_value: 0.,
+            max_value: 200.,
+        };
+        let (param, mut render) = audio_param_pair(opts, context.mock_registration());
+
+        // ramp1: 0 -> 20 over [0, 20] (raw `.time` = 20)
+        render.handle_incoming_event(param.linear_ramp_to_value_at_time_raw(20., 20.));
+        // cancel at t=2 -> holds at value 2
+        render.handle_incoming_event(param.cancel_and_hold_at_time_raw(2.));
+        // ramp2: from (2, 2) to (4, 50) -- raw `.time` = 4
+        render.handle_incoming_event(param.linear_ramp_to_value_at_time_raw(50., 4.));
+
+        let vs = render.compute_intrinsic_values(0., 1., 5);
+        // t=0,1: ramp1, linear 0 -> 2
+        // t=2..4: ramp2, linear 2 -> 50 (slope 24/s)
+        // t=4..: held at 50
+        assert_float_eq!(vs, &[0., 1., 2., 26., 50.][..], abs_all <= 0.);
+    }
+
+    // Regression test: a second cancel_and_hold_at_time call must truncate
+    // the currently active ramp, not a stale one an earlier call already
+    // truncated.
+    #[test]
+    fn test_repeated_cancel_and_hold_matches_active_ramp_not_stale_one() {
+        let context = OfflineAudioContext::new(1, 1, 48000.);
+        let opts = AudioParamDescriptor {
+            name: String::new(),
+            automation_rate: AutomationRate::A,
+            default_value: 0.,
+            min_value: 0.,
+            max_value: 200.,
+        };
+        let (param, mut render) = audio_param_pair(opts, context.mock_registration());
+
+        // ramp1: 0 -> 10 originally ending at t=5 (raw `.time` = 5)
+        render.handle_incoming_event(param.linear_ramp_to_value_at_time_raw(10., 5.));
+        // cancel ramp1 early at t=2 -> holds at 2*10/5 = 4;
+        // ramp1.cancel_time = Some(2), ramp1.time is still 5
+        render.handle_incoming_event(param.cancel_and_hold_at_time_raw(2.));
+        // ramp2: from (2, 4) to (10, 100) -- raw `.time` = 10, LARGER than
+        // ramp1's raw `.time` (5), with a very different slope than ramp1's
+        // so the two hypotheses (ramp1 vs ramp2 matched as neighbor) are
+        // numerically distinguishable
+        render.handle_incoming_event(param.linear_ramp_to_value_at_time_raw(100., 10.));
+        // cancel again at t=3: this must truncate the ACTIVE ramp2 (slope 12/s,
+        // value 4 + 12*1 = 16 at t=3), not the already-finished (clipped-at-2)
+        // ramp1 (which would incorrectly give 3 * 10/5 = 6).
+        render.handle_incoming_event(param.cancel_and_hold_at_time_raw(3.));
+
+        let vs = render.compute_intrinsic_values(0., 1., 10);
+        assert_float_eq!(
+            vs,
+            &[0., 2., 4., 16., 16., 16., 16., 16., 16., 16.][..],
+            abs_all <= 0.
+        );
     }
 }

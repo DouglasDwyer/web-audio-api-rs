@@ -29,6 +29,9 @@
   for render quanta where its input is silent and it has already reported no tail time
 - `DelayNode` skips its per-sample interpolation and emits silence directly once its input has
   been silent for longer than its `maxDelayTime`
+- Fix: AudioParam automation events are now sorted by their effective (`cancel_time`-aware) time,
+  preventing discontinuities when a ramp scheduled after a `cancelAndHoldAtTime()` call had a
+  smaller declared end time than the event it truncated
 
 ## Version 1.7.0 (2026-08-06)
 
