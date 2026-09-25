@@ -774,13 +774,16 @@ impl AudioProcessor for PannerRenderer {
             });
 
         if let Some(hrtf_state) = &mut hrtf_state {
-            // HRTF panning - always k-rate so take a single value from the a-rate iter
+            // HRTF panning - always k-rate so take a single value from the a-rate iter.
+            // Use the *last* frame of the quantum (rather than the first) so the filter
+            // we converge to by the end of this block reflects the most recent automation
+            // value, reducing the position-to-audio latency by up to one render quantum.
             let SpatialParams {
                 dist_gain,
                 cone_gain,
                 azimuth,
                 elevation,
-            } = a_rate_params.next().unwrap();
+            } = a_rate_params.nth(RENDER_QUANTUM_SIZE - 1).unwrap();
 
             let new_distance_gain = cone_gain * dist_gain;
 
