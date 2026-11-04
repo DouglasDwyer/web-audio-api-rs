@@ -218,7 +218,7 @@ impl ConcreteBaseAudioContext {
 
         // For an online AudioContext, pre-create the HRTF-database for panner nodes
         if !offline {
-            crate::node::load_hrtf_processor(sample_rate as u32);
+            crate::node::load_hrtf_sphere(sample_rate as u32);
         }
 
         base

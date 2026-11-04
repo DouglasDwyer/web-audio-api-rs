@@ -269,6 +269,44 @@ pub fn azimuth_and_elevation(
     (azimuth, elevation)
 }
 
+/// Unit vector from the listener to the source, expressed in the listener's frame of reference
+/// as `[right, up, front]`.
+///
+/// This is the same direction as [`azimuth_and_elevation`] describes (so
+/// `[sin(azimuth) * cos(elevation), sin(elevation), cos(azimuth) * cos(elevation)]`), but is
+/// computed without trigonometry. In the degenerate cases that `azimuth_and_elevation` maps to
+/// `(0, 0)`, this gives straight ahead: `[0, 0, 1]`.
+pub fn listener_space_direction(
+    source_position: Vector3<f32>,
+    listener_position: Vector3<f32>,
+    listener_forward: Vector3<f32>,
+    listener_up: Vector3<f32>,
+) -> Vector3<f32> {
+    const FRONT: Vector3<f32> = [0., 0., 1.];
+
+    let relative_pos = vec3_sub(source_position, listener_position);
+    if vec3_square_len(relative_pos) <= f32::MIN_POSITIVE {
+        return FRONT;
+    }
+    let source_listener = vec3_normalized(relative_pos);
+
+    let listener_right = vec3_cross(listener_forward, listener_up);
+    if vec3_square_len(listener_right) == 0. {
+        return FRONT;
+    }
+
+    // Orthonormal basis of the listener.
+    let listener_right_norm = vec3_normalized(listener_right);
+    let listener_forward_norm = vec3_normalized(listener_forward);
+    let up = vec3_cross(listener_right_norm, listener_forward_norm);
+
+    [
+        vec3_dot(source_listener, listener_right_norm),
+        vec3_dot(source_listener, up),
+        vec3_dot(source_listener, listener_forward_norm),
+    ]
+}
+
 /// Distance between two points in 3D
 pub fn distance(source_position: Vector3<f32>, listener_position: Vector3<f32>) -> f32 {
     vec3_len(vec3_sub(source_position, listener_position))
@@ -308,6 +346,65 @@ mod tests {
     const LP: [f32; 3] = [0., 0., 0.];
     const LF: [f32; 3] = [0., 0., -1.];
     const LU: [f32; 3] = [0., 1., 0.];
+
+    #[test]
+    fn listener_space_direction_matches_azimuth_and_elevation() {
+        // simple deterministic pseudorandom numbers in [-1, 1)
+        let mut seed = 12345_u32;
+        let mut rand = move || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            (seed >> 8) as f32 / (1 << 23) as f32 - 1.
+        };
+
+        for _ in 0..500 {
+            let source = [rand() * 10., rand() * 10., rand() * 10.];
+            let listener = [rand() * 10., rand() * 10., rand() * 10.];
+            let forward = [rand(), rand(), rand()];
+            let up = [rand(), rand(), rand()];
+
+            let (azimuth, elevation) = azimuth_and_elevation(source, listener, forward, up);
+            let (az, el) = (azimuth.to_radians(), elevation.to_radians());
+            let expected = [az.sin() * el.cos(), el.sin(), az.cos() * el.cos()];
+
+            let direction = listener_space_direction(source, listener, forward, up);
+            assert_float_eq!(direction[..], expected[..], abs_all <= 2e-3);
+        }
+    }
+
+    #[test]
+    fn listener_space_direction_axes() {
+        let pos = [0., 0., 0.];
+        // forward is -z and up is +y, so the listener's right is +x
+        assert_float_eq!(
+            listener_space_direction([1., 0., 0.], pos, LF, LU)[..],
+            [1., 0., 0.][..],
+            abs_all <= 1e-6
+        );
+        assert_float_eq!(
+            listener_space_direction([0., 3., 0.], pos, LF, LU)[..],
+            [0., 1., 0.][..],
+            abs_all <= 1e-6
+        );
+        assert_float_eq!(
+            listener_space_direction([0., 0., -2.], pos, LF, LU)[..],
+            [0., 0., 1.][..],
+            abs_all <= 1e-6
+        );
+        assert_float_eq!(
+            listener_space_direction([0., 0., 2.], pos, LF, LU)[..],
+            [0., 0., -1.][..],
+            abs_all <= 1e-6
+        );
+    }
+
+    #[test]
+    fn listener_space_direction_degenerate_cases_face_forward() {
+        let front = [0., 0., 1.];
+        // source at the listener
+        assert_eq!(listener_space_direction(LP, LP, LF, LU), front);
+        // forward and up are parallel, so right is undefined
+        assert_eq!(listener_space_direction([1., 2., 3.], LP, LU, LU), front);
+    }
 
     #[test]
     fn azimuth_elevation_equal_pos() {

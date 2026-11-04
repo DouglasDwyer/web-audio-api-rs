@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::sync::{Mutex, OnceLock};
 
-use float_eq::float_eq;
-use hrtf::{HrirSphere, HrtfContext, HrtfProcessor, Vec3};
+use hrtf::{HrirSphere, HrtfProcessor, HrtfSphere, Vec3};
 
 use crate::context::{AudioContextRegistration, AudioParamId, BaseAudioContext};
 use crate::param::{AudioParam, AudioParamDescriptor};
@@ -31,13 +30,14 @@ pub(crate) fn assert_valid_cone_outer_gain(value: f64) {
     );
 }
 
-/// Load the HRTF processor for the given sample_rate
+/// Load the HRTF sphere for the given sample_rate, along with the length of its impulse responses
 ///
 /// The included data contains the impulse responses at 44100 Hertz, so it needs to be resampled
 /// for other values (which can easily take 100s of milliseconds). Therefore cache the result (per
-/// sample rate) in a global variable and clone it every time a new panner is created.
-pub(crate) fn load_hrtf_processor(sample_rate: u32) -> (HrtfProcessor, usize) {
-    static INSTANCE: OnceLock<Mutex<HashMap<u32, (HrtfProcessor, usize)>>> = OnceLock::new();
+/// sample rate) in a global variable and clone it (this is a cheap, shared reference) every time a
+/// new panner is created.
+pub(crate) fn load_hrtf_sphere(sample_rate: u32) -> (HrtfSphere, usize) {
+    static INSTANCE: OnceLock<Mutex<HashMap<u32, (HrtfSphere, usize)>>> = OnceLock::new();
     let cache = INSTANCE.get_or_init(|| Mutex::new(HashMap::new()));
 
     // To avoid poisening the cache mutex, don't use the `entry()` API on HashMap
@@ -52,11 +52,7 @@ pub(crate) fn load_hrtf_processor(sample_rate: u32) -> (HrtfProcessor, usize) {
     let hrir_sphere = HrirSphere::new(&resource[..], sample_rate).unwrap();
     let len = hrir_sphere.len();
 
-    let interpolation_steps = 1; // TODO?
-    let samples_per_step = RENDER_QUANTUM_SIZE / interpolation_steps;
-    let processor = HrtfProcessor::new(hrir_sphere, interpolation_steps, samples_per_step);
-
-    let value = (processor, len);
+    let value = (HrtfSphere::new(&hrir_sphere), len);
     cache.lock().unwrap().insert(sample_rate, value.clone());
 
     value
@@ -212,55 +208,72 @@ struct HrtfState {
     len: usize,
     processor: HrtfProcessor,
     output_interleaved: Vec<(f32, f32)>,
-    prev_sample_vector: Vec3,
-    prev_left_samples: Vec<f32>,
-    prev_right_samples: Vec<f32>,
-    prev_distance_gain: f32,
+    /// Scratch space for the per-sample direction when parameters are automated within a quantum.
+    directions: Vec<Vec3>,
+    /// Scratch space for the per-sample gain when parameters are automated within a quantum.
+    gains: Vec<f32>,
+}
+
+/// Converts a unit vector in the listener's frame of reference (`[right, up, front]`)
+/// to the coordinate system of the HRIR sphere.
+fn hrtf_direction(direction: [f32; 3]) -> Vec3 {
+    Vec3 {
+        x: direction[0],
+        z: direction[1],
+        y: direction[2],
+    }
 }
 
 impl HrtfState {
-    fn new(processor: HrtfProcessor, len: usize) -> Self {
+    fn new(sphere: HrtfSphere, len: usize) -> Self {
         Self {
             len,
-            processor,
+            processor: HrtfProcessor::new(sphere),
             output_interleaved: vec![(0., 0.); RENDER_QUANTUM_SIZE],
-            prev_sample_vector: Vec3::new(0., 0., 1.),
-            prev_left_samples: vec![],  // will resize accordingly
-            prev_right_samples: vec![], // will resize accordingly
-            prev_distance_gain: 0.,
+            directions: Vec::with_capacity(RENDER_QUANTUM_SIZE),
+            gains: Vec::with_capacity(RENDER_QUANTUM_SIZE),
         }
     }
 
-    fn process(
-        &mut self,
-        source: &[f32],
-        new_distance_gain: f32,
-        projected_source: [f32; 3],
-    ) -> &[(f32, f32)] {
+    /// Render a quantum for which the direction and gain are constant. The processor
+    /// interpolates from the values of the previous quantum to the new ones, per sample.
+    fn process(&mut self, source: &[f32], direction: [f32; 3], gain: f32) -> &[(f32, f32)] {
         // reset state of output buffer
         self.output_interleaved.fill((0., 0.));
 
-        let new_sample_vector = Vec3 {
-            x: projected_source[0],
-            z: projected_source[1],
-            y: projected_source[2],
-        };
-
-        let context = HrtfContext {
+        self.processor.process(
             source,
-            output: &mut self.output_interleaved,
-            new_sample_vector,
-            prev_sample_vector: self.prev_sample_vector,
-            prev_left_samples: &mut self.prev_left_samples,
-            prev_right_samples: &mut self.prev_right_samples,
-            new_distance_gain,
-            prev_distance_gain: self.prev_distance_gain,
-        };
+            &mut self.output_interleaved,
+            hrtf_direction(direction),
+            gain,
+        );
 
-        self.processor.process_samples(context);
+        &self.output_interleaved
+    }
 
-        self.prev_sample_vector = new_sample_vector;
-        self.prev_distance_gain = new_distance_gain;
+    /// Render a quantum for which the direction and gain change within the quantum. `params`
+    /// supplies the values for each sample.
+    fn process_a_rate(
+        &mut self,
+        source: &[f32],
+        params: impl Iterator<Item = SpatialParams>,
+    ) -> &[(f32, f32)] {
+        self.directions.clear();
+        self.gains.clear();
+        for params in params.take(source.len()) {
+            self.directions.push(hrtf_direction(params.direction));
+            self.gains.push(params.cone_gain * params.dist_gain);
+        }
+
+        // reset state of output buffer
+        self.output_interleaved.fill((0., 0.));
+
+        self.processor.process_per_sample(
+            source,
+            &self.directions,
+            &self.gains,
+            &mut self.output_interleaved,
+        );
 
         &self.output_interleaved
     }
@@ -640,8 +653,8 @@ impl PannerNode {
             PanningModelType::EqualPower => None,
             PanningModelType::HRTF => {
                 let sample_rate = self.context().sample_rate() as u32;
-                let (processor, len) = load_hrtf_processor(sample_rate);
-                Some(HrtfState::new(processor, len))
+                let (sphere, len) = load_hrtf_sphere(sample_rate);
+                Some(HrtfState::new(sphere, len))
             }
         };
 
@@ -655,8 +668,11 @@ impl PannerNode {
 struct SpatialParams {
     dist_gain: f32,
     cone_gain: f32,
+    /// Azimuth in degrees. Only calculated for equal power panning.
     azimuth: f32,
-    elevation: f32,
+    /// Unit vector from the listener to the source, as `[right, up, front]`.
+    /// Only calculated for HRTF panning.
+    direction: [f32; 3],
 }
 
 struct PannerRenderer {
@@ -722,6 +738,25 @@ impl AudioProcessor for PannerRenderer {
         let [listener_position_x, listener_position_y, listener_position_z, listener_forward_x, listener_forward_y, listener_forward_z, listener_up_x, listener_up_y, listener_up_z] =
             params.listener_params();
 
+        // Optimize for static Panner & Listener
+        let single_valued = source_position_x.len() == 1
+            && source_position_y.len() == 1
+            && source_position_z.len() == 1
+            && source_orientation_x.len() == 1
+            && source_orientation_y.len() == 1
+            && source_orientation_z.len() == 1
+            && listener_position_x.len() == 1
+            && listener_position_y.len() == 1
+            && listener_position_z.len() == 1
+            && listener_forward_x.len() == 1
+            && listener_forward_y.len() == 1
+            && listener_forward_z.len() == 1
+            && listener_up_x.len() == 1
+            && listener_up_y.len() == 1
+            && listener_up_z.len() == 1;
+
+        let use_hrtf = hrtf_state.is_some();
+
         // build up the a-rate iterator for spatial variables
         let mut a_rate_params = source_position_x
             .iter()
@@ -759,45 +794,34 @@ impl AudioProcessor for PannerRenderer {
                 let cone_gain =
                     self.cone_gain(source_position, source_orientation, listener_position);
 
-                // azimuth and elevation of the panner in frame of reference of the listener
-                let (azimuth, elevation) = crate::spatial::azimuth_and_elevation(
-                    source_position,
-                    listener_position,
-                    listener_forward,
-                    listener_up,
-                );
+                // direction of the panner in frame of reference of the listener
+                let (azimuth, direction) = if use_hrtf {
+                    let direction = crate::spatial::listener_space_direction(
+                        source_position,
+                        listener_position,
+                        listener_forward,
+                        listener_up,
+                    );
+                    (0., direction)
+                } else {
+                    let (azimuth, _elevation) = crate::spatial::azimuth_and_elevation(
+                        source_position,
+                        listener_position,
+                        listener_forward,
+                        listener_up,
+                    );
+                    (azimuth, [0., 0., 1.])
+                };
 
                 SpatialParams {
                     dist_gain,
                     cone_gain,
                     azimuth,
-                    elevation,
+                    direction,
                 }
             });
 
         if let Some(hrtf_state) = &mut hrtf_state {
-            // HRTF panning - always k-rate so take a single value from the a-rate iter
-            let SpatialParams {
-                dist_gain,
-                cone_gain,
-                azimuth,
-                elevation,
-            } = a_rate_params.next().unwrap();
-
-            let new_distance_gain = cone_gain * dist_gain;
-
-            // convert az/el to cartesian coordinates to determine unit direction
-            let az_rad = azimuth * PI / 180.;
-            let el_rad = elevation * PI / 180.;
-            let x = az_rad.sin() * el_rad.cos();
-            let z = az_rad.cos() * el_rad.cos();
-            let y = el_rad.sin();
-            let mut projected_source = [x, y, z];
-
-            if float_eq!(&projected_source[..], &[0.; 3][..], abs_all <= 1E-6) {
-                projected_source = [0., 0., 1.];
-            }
-
             // Currently, only mono-to-stereo panning is supported (todo issue #241).
             // Stereo-to-stereo is typically implemented by using 2 HRTF-kernels, feeding each
             // channels into their respective kernel, and summing the result per ear.  This will
@@ -810,8 +834,22 @@ impl AudioProcessor for PannerRenderer {
                 output.mix(1, ChannelInterpretation::Speakers);
             }
 
-            let output_interleaved =
-                hrtf_state.process(output.channel_data(0), new_distance_gain, projected_source);
+            let output_interleaved = if single_valued {
+                // The parameters are constant for this quantum. The HRTF processor ramps
+                // the direction and gain, per sample, from the previous quantum's values.
+                let SpatialParams {
+                    dist_gain,
+                    cone_gain,
+                    direction,
+                    ..
+                } = a_rate_params.next().unwrap();
+
+                hrtf_state.process(output.channel_data(0), direction, cone_gain * dist_gain)
+            } else {
+                // The parameters are automated within the quantum, so use
+                // the direction and gain of every sample.
+                hrtf_state.process_a_rate(output.channel_data(0), a_rate_params)
+            };
 
             output.set_number_of_channels(2);
             let [left, right] = output.stereo_mut();
@@ -826,23 +864,6 @@ impl AudioProcessor for PannerRenderer {
                 });
         } else {
             // EqualPower panning
-
-            // Optimize for static Panner & Listener
-            let single_valued = source_position_x.len() == 1
-                && source_position_y.len() == 1
-                && source_position_z.len() == 1
-                && source_orientation_x.len() == 1
-                && source_orientation_y.len() == 1
-                && source_orientation_z.len() == 1
-                && listener_position_x.len() == 1
-                && listener_position_y.len() == 1
-                && listener_position_z.len() == 1
-                && listener_forward_x.len() == 1
-                && listener_forward_y.len() == 1
-                && listener_forward_z.len() == 1
-                && listener_up_x.len() == 1
-                && listener_up_y.len() == 1
-                && listener_up_z.len() == 1;
 
             if single_valued {
                 let param_value = a_rate_params.next().unwrap();
@@ -1275,9 +1296,65 @@ mod tests {
     }
 
     #[test]
+    fn test_hrtf_arate_position_automation_varies_within_quantum() {
+        // Render a sound while sweeping the source across the listener within a single quantum,
+        // and compare with a source that does not move. The two must match when the sweep starts
+        // and diverge as it progresses (so direction follows the automation per sample, instead
+        // of being evaluated once per quantum).
+        let sample_rate = 48000.;
+        let render = |sweep: bool| {
+            let mut context = OfflineAudioContext::new(2, RENDER_QUANTUM_SIZE * 2, sample_rate);
+
+            let input = AudioBuffer::from(vec![vec![1.; RENDER_QUANTUM_SIZE * 2]], sample_rate);
+            let mut src = AudioBufferSourceNode::new(&context, AudioBufferSourceOptions::default());
+            src.set_buffer(input);
+            src.start();
+
+            let panner = PannerNode::new(
+                &context,
+                PannerOptions {
+                    panning_model: PanningModelType::HRTF,
+                    ..PannerOptions::default()
+                },
+            );
+            panner.position_x().set_value_at_time(-10., 0.);
+            if sweep {
+                panner.position_x().linear_ramp_to_value_at_time(
+                    10.,
+                    RENDER_QUANTUM_SIZE as f64 / sample_rate as f64,
+                );
+            }
+
+            src.connect(&panner);
+            panner.connect(&context.destination());
+            context.start_rendering_sync()
+        };
+
+        let still = render(false);
+        let swept = render(true);
+
+        for channel in 0..2 {
+            let a = &still.get_channel_data(channel)[..RENDER_QUANTUM_SIZE];
+            let b = &swept.get_channel_data(channel)[..RENDER_QUANTUM_SIZE];
+            assert!(b.iter().all(|v| v.is_finite()));
+
+            let early = a[..4]
+                .iter()
+                .zip(&b[..4])
+                .fold(0f32, |m, (x, y)| m.max((x - y).abs()));
+            let late = a[96..]
+                .iter()
+                .zip(&b[96..])
+                .fold(0f32, |m, (x, y)| m.max((x - y).abs()));
+            assert!(early < 1E-3, "sweep differs before it starts: {early}");
+            assert!(late > 10. * early.max(1E-4), "sweep had no effect: {late}");
+        }
+    }
+
+    #[test]
     fn test_hrtf_tail_time_resets_between_sounds() {
         let sample_rate = 44100.;
-        let (_processor, len) = load_hrtf_processor(sample_rate as u32);
+        let (_sphere, len) = load_hrtf_sphere(sample_rate as u32);
 
         // enough silent quanta to fully exhaust the tail time counter after the first burst
         let gap_quanta = len.div_ceil(RENDER_QUANTUM_SIZE) + 4;
@@ -1322,7 +1399,7 @@ mod tests {
 
     #[test]
     fn test_hrtf_loads_at_minimum_sample_rate() {
-        let (_processor, len) = load_hrtf_processor(crate::MIN_SAMPLE_RATE as u32);
+        let (_sphere, len) = load_hrtf_sphere(crate::MIN_SAMPLE_RATE as u32);
 
         assert!(len > 0);
         assert!(
