@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix: nodes were skipped for a whole render quantum (a 128 sample dropout) when the control
+  thread registered a node after connecting two nodes within the same render quantum. Registering
+  a node no longer turns a pending re-sort of the audio graph into a partial ordering
 - Fix: automatically free the resources of non-cyclic `DelayNode`s when their output is unused
 - Fix: a fire-and-forget `DelayNode` no longer re-emits a phantom copy of its input one
   `max_delay_time` later, after the `DelayWriter` end has been reclaimed

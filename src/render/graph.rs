@@ -262,9 +262,13 @@ impl Graph {
             }),
         );
 
-        // add to ordered list (some nodes should be processed even if not connected)
-        // if the node is connected later the ordered list will be recomputed
-        self.ordered.push(index);
+        // Add to the ordered list (some nodes should be processed even if not connected). If the
+        // list is empty, a re-sort is pending (see `add_edge`): the new node is picked up by
+        // that, and pushing it here would make the list look valid while it lacks all other
+        // nodes. If the node is connected later the ordered list will be recomputed.
+        if !self.ordered.is_empty() {
+            self.ordered.push(index);
+        }
     }
 
     pub fn add_edge(&mut self, source: (AudioNodeId, usize), dest: (AudioNodeId, usize)) {
