@@ -32,6 +32,7 @@
 - Fix: AudioParam automation events are now sorted by their effective (`cancel_time`-aware) time,
   preventing discontinuities when a ramp scheduled after a `cancelAndHoldAtTime()` call had a
   smaller declared end time than the event it truncated
+- Fix: adding a node after connecting an edge no longer breaks graph sorting
 
 ## Version 1.7.0 (2026-08-06)
 
