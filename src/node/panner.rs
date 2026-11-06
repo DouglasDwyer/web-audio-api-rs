@@ -52,7 +52,7 @@ pub(crate) fn load_hrtf_processor(sample_rate: u32) -> (HrtfProcessor, usize) {
     let hrir_sphere = HrirSphere::new(&resource[..], sample_rate).unwrap();
     let len = hrir_sphere.len();
 
-    let interpolation_steps = 1; // TODO?
+    let interpolation_steps = 2;
     let samples_per_step = RENDER_QUANTUM_SIZE / interpolation_steps;
     let processor = HrtfProcessor::new(hrir_sphere, interpolation_steps, samples_per_step);
 
