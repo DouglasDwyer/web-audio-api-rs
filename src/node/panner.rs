@@ -52,9 +52,7 @@ pub(crate) fn load_hrtf_processor(sample_rate: u32) -> (HrtfProcessor, usize) {
     let hrir_sphere = HrirSphere::new(&resource[..], sample_rate).unwrap();
     let len = hrir_sphere.len();
 
-    let interpolation_steps = 1; // TODO?
-    let samples_per_step = RENDER_QUANTUM_SIZE / interpolation_steps;
-    let processor = HrtfProcessor::new(hrir_sphere, interpolation_steps, samples_per_step);
+    let processor = HrtfProcessor::new(hrir_sphere, RENDER_QUANTUM_SIZE);
 
     let value = (processor, len);
     cache.lock().unwrap().insert(sample_rate, value.clone());
@@ -213,8 +211,8 @@ struct HrtfState {
     processor: HrtfProcessor,
     output_interleaved: Vec<(f32, f32)>,
     prev_sample_vector: Vec3,
-    prev_left_samples: Vec<f32>,
-    prev_right_samples: Vec<f32>,
+    history: Vec<f32>,
+    prev_history: Vec<f32>,
     prev_distance_gain: f32,
 }
 
@@ -225,8 +223,8 @@ impl HrtfState {
             processor,
             output_interleaved: vec![(0., 0.); RENDER_QUANTUM_SIZE],
             prev_sample_vector: Vec3::new(0., 0., 1.),
-            prev_left_samples: vec![],  // will resize accordingly
-            prev_right_samples: vec![], // will resize accordingly
+            history: vec![],      // will resize accordingly
+            prev_history: vec![], // will resize accordingly
             prev_distance_gain: 0.,
         }
     }
@@ -251,10 +249,13 @@ impl HrtfState {
             output: &mut self.output_interleaved,
             new_sample_vector,
             prev_sample_vector: self.prev_sample_vector,
-            prev_left_samples: &mut self.prev_left_samples,
-            prev_right_samples: &mut self.prev_right_samples,
-            new_distance_gain,
-            prev_distance_gain: self.prev_distance_gain,
+            history: &mut self.history,
+            prev_history: &mut self.prev_history,
+            new_gain: new_distance_gain,
+            prev_gain: self.prev_distance_gain,
+            // Crossfade between the previous and the new sampling vector to avoid
+            // clicks/buzzing when the source moves quickly
+            crossfade: true,
         };
 
         self.processor.process_samples(context);
