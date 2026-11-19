@@ -11,8 +11,11 @@ use crate::events::EventPayload;
 use crate::events::{EventDispatch, EventHandler, EventLoop, EventType};
 use crate::io::{self, AudioBackendManager, ControlThreadInit, NoneBackend, RenderThreadInit};
 use crate::media_devices::{enumerate_devices_sync, MediaDeviceInfoKind};
+use crate::media_streams::{MediaStream, MediaStreamTrack};
 use crate::message::{ControlMessage, OneshotNotify};
+use crate::node::{self, AudioNodeOptions};
 use crate::render::graph::Graph;
+use crate::MediaElement;
 use crate::{is_valid_sample_rate, AudioPlaybackStats, AudioRenderCapacity, Event};
 
 use futures_channel::oneshot;
@@ -780,52 +783,48 @@ impl AudioContext {
         log::debug!("Closed audio stream");
     }
 
-    /// Creates a [`MediaStreamAudioSourceNode`](crate::node::MediaStreamAudioSourceNode) from a
-    /// [`MediaStream`](crate::media_streams::MediaStream)
-    #[cfg(feature = "MediaStreamAudioSourceNode")]
+    /// Creates a [`MediaStreamAudioSourceNode`](node::MediaStreamAudioSourceNode) from a
+    /// [`MediaStream`]
     #[must_use]
     pub fn create_media_stream_source(
         &self,
-        media: &crate::media_streams::MediaStream,
-    ) -> crate::node::MediaStreamAudioSourceNode {
-        let opts = crate::node::MediaStreamAudioSourceOptions {
+        media: &MediaStream,
+    ) -> node::MediaStreamAudioSourceNode {
+        let opts = node::MediaStreamAudioSourceOptions {
             media_stream: media,
         };
-        crate::node::MediaStreamAudioSourceNode::new(self, opts)
+        node::MediaStreamAudioSourceNode::new(self, opts)
     }
 
-    /// Creates a [`MediaStreamAudioDestinationNode`](crate::node::MediaStreamAudioDestinationNode)
-    #[cfg(feature = "MediaStreamAudioDestinationNode")]
+    /// Creates a [`MediaStreamAudioDestinationNode`](node::MediaStreamAudioDestinationNode)
     #[must_use]
-    pub fn create_media_stream_destination(&self) -> crate::node::MediaStreamAudioDestinationNode {
-        let opts = crate::node::AudioNodeOptions::default();
-        crate::node::MediaStreamAudioDestinationNode::new(self, opts)
+    pub fn create_media_stream_destination(&self) -> node::MediaStreamAudioDestinationNode {
+        let opts = AudioNodeOptions::default();
+        node::MediaStreamAudioDestinationNode::new(self, opts)
     }
 
-    /// Creates a [`MediaStreamTrackAudioSourceNode`](crate::node::MediaStreamTrackAudioSourceNode) from a
-    /// [`MediaStreamTrack`](crate::media_streams::MediaStreamTrack)
-    #[cfg(feature = "MediaStreamTrackAudioSourceNode")]
+    /// Creates a [`MediaStreamTrackAudioSourceNode`](node::MediaStreamTrackAudioSourceNode) from a
+    /// [`MediaStreamTrack`]
     #[must_use]
     pub fn create_media_stream_track_source(
         &self,
-        media: &crate::media_streams::MediaStreamTrack,
-    ) -> crate::node::MediaStreamTrackAudioSourceNode {
-        let opts = crate::node::MediaStreamTrackAudioSourceOptions {
+        media: &MediaStreamTrack,
+    ) -> node::MediaStreamTrackAudioSourceNode {
+        let opts = node::MediaStreamTrackAudioSourceOptions {
             media_stream_track: media,
         };
-        crate::node::MediaStreamTrackAudioSourceNode::new(self, opts)
+        node::MediaStreamTrackAudioSourceNode::new(self, opts)
     }
 
-    /// Creates a [`MediaElementAudioSourceNode`](crate::node::MediaElementAudioSourceNode) from a
-    /// [`MediaElement`](crate::MediaElement)
-    #[cfg(feature = "MediaElementAudioSourceNode")]
+    /// Creates a [`MediaElementAudioSourceNode`](node::MediaElementAudioSourceNode) from a
+    /// [`MediaElement`]
     #[must_use]
     pub fn create_media_element_source(
         &self,
-        media_element: &mut crate::MediaElement,
-    ) -> crate::node::MediaElementAudioSourceNode {
-        let opts = crate::node::MediaElementAudioSourceOptions { media_element };
-        crate::node::MediaElementAudioSourceNode::new(self, opts)
+        media_element: &mut MediaElement,
+    ) -> node::MediaElementAudioSourceNode {
+        let opts = node::MediaElementAudioSourceOptions { media_element };
+        node::MediaElementAudioSourceNode::new(self, opts)
     }
 }
 

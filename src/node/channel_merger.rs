@@ -171,7 +171,7 @@ impl AudioProcessor for ChannelMergerRenderer {
     }
 }
 
-#[cfg(all(test, feature = "ConstantSourceNode"))]
+#[cfg(test)]
 mod tests {
     use float_eq::assert_float_eq;
 

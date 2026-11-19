@@ -57,12 +57,7 @@ pub trait AudioScheduledSourceNode: AudioNode {
     }
 }
 
-#[cfg(all(
-    test,
-    feature = "AudioBufferSourceNode",
-    feature = "ConstantSourceNode",
-    feature = "OscillatorNode"
-))]
+#[cfg(test)]
 mod tests {
     use crate::context::{AudioContextRegistration, BaseAudioContext, OfflineAudioContext};
     use crate::node::{AudioNode, AudioScheduledSourceNode, ChannelConfig};

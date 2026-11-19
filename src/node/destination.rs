@@ -20,8 +20,6 @@ use super::{AudioNode, AudioNodeOptions, ChannelConfig, ChannelCountMode, Channe
 /// # Usage
 ///
 /// ```no_run
-/// # #[cfg(feature = "OscillatorNode")]
-/// # {
 /// use web_audio_api::context::{BaseAudioContext, AudioContext};
 /// use web_audio_api::node::{AudioNode, AudioScheduledSourceNode};
 ///
@@ -30,7 +28,6 @@ use super::{AudioNode, AudioNodeOptions, ChannelConfig, ChannelCountMode, Channe
 /// let mut osc = context.create_oscillator();
 /// osc.connect(&context.destination());
 /// osc.start();
-/// # }
 /// ```
 ///
 #[derive(Debug)]

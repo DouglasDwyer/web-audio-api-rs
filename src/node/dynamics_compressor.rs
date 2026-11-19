@@ -478,7 +478,7 @@ impl AudioProcessor for DynamicsCompressorRenderer {
     }
 }
 
-#[cfg(all(test, feature = "AudioBufferSourceNode"))]
+#[cfg(test)]
 mod tests {
     use float_eq::assert_float_eq;
 

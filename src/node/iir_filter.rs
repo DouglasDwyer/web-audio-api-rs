@@ -413,7 +413,7 @@ impl AudioProcessor for IirFilterRenderer {
     }
 }
 
-#[cfg(all(test, feature = "AudioBufferSourceNode", feature = "BiquadFilterNode"))]
+#[cfg(test)]
 mod tests {
     use float_eq::assert_float_eq;
     use std::fs::File;

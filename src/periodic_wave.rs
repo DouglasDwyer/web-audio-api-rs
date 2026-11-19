@@ -43,8 +43,6 @@ pub struct PeriodicWaveOptions {
 /// # Usage
 ///
 /// ```no_run
-/// # #[cfg(feature = "OscillatorNode")]
-/// # {
 /// use web_audio_api::context::{BaseAudioContext, AudioContext};
 /// use web_audio_api::{PeriodicWave, PeriodicWaveOptions};
 /// use web_audio_api::node::{AudioNode, AudioScheduledSourceNode};
@@ -64,7 +62,6 @@ pub struct PeriodicWaveOptions {
 /// osc.set_periodic_wave(periodic_wave);
 /// osc.connect(&context.destination());
 /// osc.start();
-/// # }
 /// ```
 /// # Examples
 ///

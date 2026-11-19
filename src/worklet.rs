@@ -783,7 +783,6 @@ mod tests {
     /// outputs (a dead end) whose `process` always returns `false` (a pure transform). Every handle
     /// is dropped, then 20 render quanta are produced. A processor that reports side effects is
     /// rendered every quantum; one that does not is reclaimed almost immediately.
-    #[cfg(feature = "ConstantSourceNode")]
     #[test]
     fn test_has_side_effects_controls_orphaned_worklet_disposal() {
         use crate::node::AudioScheduledSourceNode;

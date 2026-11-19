@@ -786,12 +786,7 @@ impl DelayReader {
     }
 }
 
-#[cfg(all(
-    test,
-    feature = "AudioBufferSourceNode",
-    feature = "ConstantSourceNode",
-    feature = "GainNode"
-))]
+#[cfg(test)]
 mod tests {
     use float_eq::assert_float_eq;
 

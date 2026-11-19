@@ -5,9 +5,6 @@ use std::sync::{Mutex, OnceLock};
 
 use float_eq::float_eq;
 use hrtf::{HrirSphere, HrtfContext, HrtfProcessor, Vec3};
-use vecmath::{
-    vec3_cross, vec3_dot, vec3_len, vec3_normalized, vec3_scale, vec3_square_len, vec3_sub, Vector3,
-};
 
 use crate::context::{AudioContextRegistration, AudioParamId, BaseAudioContext};
 use crate::param::{AudioParam, AudioParamDescriptor};
@@ -763,7 +760,7 @@ impl AudioProcessor for PannerRenderer {
                     self.cone_gain(source_position, source_orientation, listener_position);
 
                 // azimuth and elevation of the panner in frame of reference of the listener
-                let (azimuth, elevation) = azimuth_and_elevation(
+                let (azimuth, elevation) = crate::spatial::azimuth_and_elevation(
                     source_position,
                     listener_position,
                     listener_forward,
@@ -946,7 +943,8 @@ impl PannerRenderer {
         } else {
             let cone_outer_gain = self.cone_outer_gain as f32;
 
-            let abs_angle = angle(source_position, source_orientation, listener_position);
+            let abs_angle =
+                crate::spatial::angle(source_position, source_orientation, listener_position);
 
             if abs_angle < abs_inner_angle {
                 1. // No attenuation
@@ -963,7 +961,7 @@ impl PannerRenderer {
     fn dist_gain(&self, source_position: [f32; 3], listener_position: [f32; 3]) -> f32 {
         let distance_model = self.distance_model;
         let ref_distance = self.ref_distance;
-        let distance = distance(source_position, listener_position) as f64;
+        let distance = crate::spatial::distance(source_position, listener_position) as f64;
 
         let dist_gain = match distance_model {
             DistanceModelType::Linear => {
@@ -1064,203 +1062,7 @@ fn apply_stereo_to_stereo_gain(
     }
 }
 
-/// Direction to source position measured from listener in 3D
-fn azimuth_and_elevation(
-    source_position: Vector3<f32>,
-    listener_position: Vector3<f32>,
-    listener_forward: Vector3<f32>,
-    listener_up: Vector3<f32>,
-) -> (f32, f32) {
-    let relative_pos = vec3_sub(source_position, listener_position);
-
-    // Handle degenerate case if source and listener are at the same point.
-    if vec3_square_len(relative_pos) <= f32::MIN_POSITIVE {
-        return (0., 0.);
-    }
-
-    // Calculate the source-listener vector.
-    let source_listener = vec3_normalized(relative_pos);
-
-    // Align axes.
-    let listener_right = vec3_cross(listener_forward, listener_up);
-
-    if vec3_square_len(listener_right) == 0. {
-        // Handle the case where listener’s 'up' and 'forward' vectors are linearly dependent, in
-        // which case 'right' cannot be determined
-        return (0., 0.);
-    }
-
-    // Determine a unit vector orthogonal to listener’s right, forward
-    let listener_right_norm = vec3_normalized(listener_right);
-    let listener_forward_norm = vec3_normalized(listener_forward);
-    let up = vec3_cross(listener_right_norm, listener_forward_norm);
-
-    // Determine elevation first
-    let mut elevation = 90. - 180. * vec3_dot(source_listener, up).acos() / PI;
-    if elevation > 90. {
-        elevation = 180. - elevation;
-    } else if elevation < -90. {
-        elevation = -180. - elevation;
-    }
-
-    let up_projection = vec3_dot(source_listener, up);
-    let projected_source = vec3_sub(source_listener, vec3_scale(up, up_projection));
-
-    // this case is not handled by the spec, so I stole the solution from
-    // https://hg.mozilla.org/mozilla-central/rev/1100a5bc013b541c635bc42bd753531e95c952e4
-    if vec3_square_len(projected_source) == 0. {
-        return (0., elevation);
-    }
-    let projected_source = vec3_normalized(projected_source);
-
-    let mut azimuth = 180. * vec3_dot(projected_source, listener_right_norm).acos() / PI;
-
-    // Source in front or behind the listener.
-    let front_back = vec3_dot(projected_source, listener_forward_norm);
-    if front_back < 0. {
-        azimuth = 360. - azimuth;
-    }
-
-    // Make azimuth relative to "forward" and not "right" listener vector.
-    #[allow(clippy::manual_range_contains)]
-    if azimuth >= 0. && azimuth <= 270. {
-        azimuth = 90. - azimuth;
-    } else {
-        azimuth = 450. - azimuth;
-    }
-
-    (azimuth, elevation)
-}
-
-/// Distance between two points in 3D
-fn distance(source_position: Vector3<f32>, listener_position: Vector3<f32>) -> f32 {
-    vec3_len(vec3_sub(source_position, listener_position))
-}
-
-/// Angle between two vectors in 3D
-fn angle(
-    source_position: Vector3<f32>,
-    source_orientation: Vector3<f32>,
-    listener_position: Vector3<f32>,
-) -> f32 {
-    // handle edge case of missing source orientation
-    if vec3_square_len(source_orientation) == 0. {
-        return 0.;
-    }
-    let normalized_source_orientation = vec3_normalized(source_orientation);
-
-    let relative_pos = vec3_sub(source_position, listener_position);
-    // Handle degenerate case if source and listener are at the same point.
-    if vec3_square_len(relative_pos) <= f32::MIN_POSITIVE {
-        return 0.;
-    }
-    // Calculate the source-listener vector.
-    let source_listener = vec3_normalized(relative_pos);
-
-    let angle = 180. * vec3_dot(source_listener, normalized_source_orientation).acos() / PI;
-    angle.abs()
-}
-
 #[cfg(test)]
-mod spatial_tests {
-    use float_eq::assert_float_eq;
-
-    use super::*;
-
-    // listener coordinates/directions
-    const LP: [f32; 3] = [0., 0., 0.];
-    const LF: [f32; 3] = [0., 0., -1.];
-    const LU: [f32; 3] = [0., 1., 0.];
-
-    #[test]
-    fn azimuth_elevation_equal_pos() {
-        let pos = [0., 0., 0.];
-        let (azimuth, elevation) = azimuth_and_elevation(pos, LP, LF, LU);
-
-        assert_float_eq!(azimuth, 0., abs <= 0.);
-        assert_float_eq!(elevation, 0., abs <= 0.);
-    }
-
-    #[test]
-    fn azimuth_elevation_horizontal_plane() {
-        // horizontal plane is spanned by x-z axes
-
-        let pos = [10., 0., 0.];
-        let (azimuth, elevation) = azimuth_and_elevation(pos, LP, LF, LU);
-        assert_float_eq!(azimuth, 90., abs <= 0.001);
-        assert_float_eq!(elevation, 0., abs <= 0.);
-
-        let pos = [-10., 0., 0.];
-        let (azimuth, elevation) = azimuth_and_elevation(pos, LP, LF, LU);
-        assert_float_eq!(azimuth, -90., abs <= 0.001);
-        assert_float_eq!(elevation, 0., abs <= 0.);
-
-        let pos = [10., 0., -10.];
-        let (azimuth, elevation) = azimuth_and_elevation(pos, LP, LF, LU);
-        assert_float_eq!(azimuth, 45., abs <= 0.001);
-        assert_float_eq!(elevation, 0., abs <= 0.);
-
-        let pos = [-10., 0., -10.];
-        let (azimuth, elevation) = azimuth_and_elevation(pos, LP, LF, LU);
-        assert_float_eq!(azimuth, -45., abs <= 0.001);
-        assert_float_eq!(elevation, 0., abs <= 0.);
-    }
-
-    #[test]
-    fn azimuth_elevation_vertical() {
-        let pos = [0., -10., 0.];
-        let (azimuth, elevation) = azimuth_and_elevation(pos, LP, LF, LU);
-        assert_float_eq!(azimuth, 0., abs <= 0.001);
-        assert_float_eq!(elevation, -90., abs <= 0.001);
-
-        let pos = [0., 10., 0.];
-        let (azimuth, elevation) = azimuth_and_elevation(pos, LP, LF, LU);
-        assert_float_eq!(azimuth, 0., abs <= 0.001);
-        assert_float_eq!(elevation, 90., abs <= 0.001);
-    }
-
-    #[test]
-    fn angle_equal_pos() {
-        let pos = [0., 0., 0.];
-        let orientation = [1., 0., 0.];
-        let angle = angle(pos, orientation, LP);
-
-        assert_float_eq!(angle, 0., abs <= 0.);
-    }
-
-    #[test]
-    fn angle_no_orientation() {
-        let pos = [10., 0., 0.];
-        let orientation = [0., 0., 0.];
-        let angle = angle(pos, orientation, LP);
-
-        assert_float_eq!(angle, 0., abs <= 0.);
-    }
-
-    #[test]
-    fn test_angle() {
-        let pos = [1., 0., 0.];
-        let orientation = [0., 1., 0.];
-        let angle = angle(pos, orientation, LP);
-
-        assert_float_eq!(angle, 90., abs <= 0.);
-    }
-
-    #[test]
-    fn test_angle_abs_value() {
-        let pos = [1., 0., 0.];
-        let orientation = [0., -1., 0.];
-        let angle = angle(pos, orientation, LP);
-
-        assert_float_eq!(angle, 90., abs <= 0.);
-    }
-}
-
-#[cfg(all(
-    test,
-    feature = "AudioBufferSourceNode",
-    feature = "ConstantSourceNode"
-))]
 mod tests {
     use float_eq::{assert_float_eq, assert_float_ne};
 

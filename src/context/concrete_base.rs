@@ -217,7 +217,6 @@ impl ConcreteBaseAudioContext {
         );
 
         // For an online AudioContext, pre-create the HRTF-database for panner nodes
-        #[cfg(feature = "PannerNode")]
         if !offline {
             crate::node::load_hrtf_processor(sample_rate as u32);
         }
@@ -557,7 +556,6 @@ impl ConcreteBaseAudioContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(all(feature = "ConstantSourceNode", feature = "GainNode"))]
     use crate::context::OfflineAudioContext;
 
     #[test]
@@ -571,7 +569,6 @@ mod tests {
         assert_eq!(provider.get().0, 2); // newly assigned
     }
 
-    #[cfg(all(feature = "ConstantSourceNode", feature = "GainNode"))]
     #[test]
     fn test_connect_disconnect() {
         let context = OfflineAudioContext::new(1, 128, 48000.);
@@ -598,7 +595,6 @@ mod tests {
         assert!(context.base().inner.connections.lock().unwrap().is_empty());
     }
 
-    #[cfg(all(feature = "ConstantSourceNode", feature = "GainNode"))]
     #[test]
     #[should_panic]
     fn test_disconnect_not_existing() {
@@ -609,7 +605,6 @@ mod tests {
         node1.disconnect_dest(&node2);
     }
 
-    #[cfg(all(feature = "ConstantSourceNode", feature = "GainNode"))]
     #[test]
     fn test_mark_node_dropped() {
         let context = OfflineAudioContext::new(1, 128, 48000.);

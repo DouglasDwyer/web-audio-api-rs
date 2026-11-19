@@ -142,8 +142,6 @@ pub struct MediaRecorderOptions {
 /// Record and encode media
 ///
 /// ```no_run
-/// # #[cfg(feature = "MediaStreamAudioDestinationNode")]
-/// # {
 /// use web_audio_api::context::AudioContext;
 /// use web_audio_api::media_recorder::{MediaRecorder, MediaRecorderOptions};
 ///
@@ -156,7 +154,6 @@ pub struct MediaRecorderOptions {
 ///     println!("Received {} bytes of data", event.blob.size());
 /// });
 /// recorder.start();
-/// # }
 /// ```
 ///
 /// # Examples

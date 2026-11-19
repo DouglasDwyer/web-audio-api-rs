@@ -274,7 +274,7 @@ impl AudioProcessor for ScriptProcessorRenderer {
     }
 }
 
-#[cfg(all(test, feature = "ConstantSourceNode"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::context::OfflineAudioContext;

@@ -508,11 +508,7 @@ impl AudioProcessor for ConvolverRenderer {
     }
 }
 
-#[cfg(all(
-    test,
-    feature = "AudioBufferSourceNode",
-    feature = "ConstantSourceNode"
-))]
+#[cfg(test)]
 mod tests {
     use float_eq::assert_float_eq;
 
