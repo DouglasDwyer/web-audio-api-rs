@@ -317,7 +317,7 @@ impl AudioProcessor for StereoPannerRenderer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "AudioBufferSourceNode"))]
 mod tests {
     use float_eq::assert_float_eq;
 

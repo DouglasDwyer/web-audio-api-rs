@@ -33,6 +33,8 @@ pub struct AudioBufferOptions {
 /// # Usage
 ///
 /// ```no_run
+/// # #[cfg(feature = "AudioBufferSourceNode")]
+/// # {
 /// use std::f32::consts::PI;
 /// use web_audio_api::context::{AudioContext, BaseAudioContext};
 /// use web_audio_api::node::{AudioNode, AudioScheduledSourceNode};
@@ -59,6 +61,7 @@ pub struct AudioBufferOptions {
 /// src.set_loop(true);
 /// src.connect(&context.destination());
 /// src.start();
+/// # }
 /// ```
 ///
 /// # Example

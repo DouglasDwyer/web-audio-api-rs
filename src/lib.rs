@@ -9,6 +9,10 @@
 #![deny(trivial_numeric_casts)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_op_in_unsafe_fn)]
+// Without all the builtin nodes enabled (see the `all-nodes` feature), several crate-internal
+// helpers (render quantum utilities, spatial maths, event types, ..) are only used by nodes that
+// are compiled out, so do not warn about them.
+#![cfg_attr(not(feature = "all-nodes"), allow(dead_code))]
 
 use std::error::Error;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -58,15 +62,19 @@ pub use spatial::AudioListener;
 
 mod io;
 
+#[cfg(feature = "AnalyserNode")]
 mod analysis;
 mod message;
 
 mod decoding;
 
+#[cfg(feature = "MediaElementAudioSourceNode")]
 mod media_element;
+#[cfg(feature = "MediaElementAudioSourceNode")]
 pub use media_element::MediaElement;
 
 mod resampling;
+#[cfg(feature = "AudioWorkletNode")]
 pub mod worklet;
 
 #[repr(transparent)]

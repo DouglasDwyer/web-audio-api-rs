@@ -267,6 +267,8 @@ impl OfflineAudioContext {
     /// # Example usage
     ///
     /// ```rust
+    /// # #[cfg(feature = "ConstantSourceNode")]
+    /// # {
     /// use futures::{executor, join};
     /// use futures::FutureExt as _;
     /// use std::sync::Arc;
@@ -290,6 +292,7 @@ impl OfflineAudioContext {
     /// let buffer = executor::block_on(async move { join!(suspend_promise, render_promise).1 });
     /// assert_eq!(buffer.number_of_channels(), 1);
     /// assert_eq!(buffer.length(), 512);
+    /// # }
     /// ```
     pub async fn suspend(&self, suspend_time: f64) {
         let quantum = self.calculate_suspend_frame(suspend_time);
@@ -340,6 +343,8 @@ impl OfflineAudioContext {
     /// # Example usage
     ///
     /// ```rust
+    /// # #[cfg(feature = "ConstantSourceNode")]
+    /// # {
     /// use web_audio_api::context::BaseAudioContext;
     /// use web_audio_api::context::OfflineAudioContext;
     /// use web_audio_api::node::{AudioNode, AudioScheduledSourceNode};
@@ -355,6 +360,7 @@ impl OfflineAudioContext {
     /// let buffer = context.start_rendering_sync();
     /// assert_eq!(buffer.number_of_channels(), 1);
     /// assert_eq!(buffer.length(), 512);
+    /// # }
     /// ```
     pub fn suspend_sync<F: FnOnce(&mut Self) + Send + Sync + 'static>(
         &mut self,
@@ -432,12 +438,21 @@ mod tests {
     use float_eq::assert_float_eq;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    #[cfg(feature = "MediaStreamTrackAudioSourceNode")]
     use crate::media_streams::MediaStreamTrack;
+    #[cfg(feature = "MediaStreamTrackAudioSourceNode")]
     use crate::message::{ControlMessage::Suspend, OneshotNotify::Async};
+    #[cfg(any(
+        feature = "ConstantSourceNode",
+        feature = "MediaStreamTrackAudioSourceNode"
+    ))]
     use crate::node::AudioNode;
+    #[cfg(feature = "ConstantSourceNode")]
     use crate::node::AudioScheduledSourceNode;
+    #[cfg(feature = "MediaStreamTrackAudioSourceNode")]
     use crate::node::{MediaStreamTrackAudioSourceNode, MediaStreamTrackAudioSourceOptions};
 
+    #[cfg(feature = "MediaStreamTrackAudioSourceNode")]
     #[test]
     fn test_suspend_between_render_quanta() {
         let context = OfflineAudioContext::new(1, 256, 48000.);
@@ -490,6 +505,7 @@ mod tests {
         let _ = context.start_rendering_sync();
     }
 
+    #[cfg(feature = "ConstantSourceNode")]
     #[test]
     fn test_suspend_sync() {
         use crate::node::ConstantSourceNode;
@@ -533,6 +549,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ConstantSourceNode")]
     #[test]
     fn render_suspend_resume_async() {
         use futures::executor;

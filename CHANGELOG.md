@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Gate all `AudioNode`s behind distinct feature flags. All nodes are enabled by default.
 - Fix: AudioBufferSourceNode looping playback starting >= loopEnd
 - Fix: PannerNode cone gain was reversed for listener orientation
 - Fix: PannerNode HRTF direction mapping of front/back and above/below
