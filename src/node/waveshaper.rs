@@ -617,7 +617,7 @@ fn apply_curve(curve: &[f32], input: f32) -> f32 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "AudioBufferSourceNode"))]
 mod tests {
     use float_eq::assert_float_eq;
 

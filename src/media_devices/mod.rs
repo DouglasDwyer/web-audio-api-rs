@@ -264,6 +264,8 @@ fn is_valid_device_id(device_id: &str) -> bool {
 /// # Example
 ///
 /// ```no_run
+/// # #[cfg(feature = "MediaStreamAudioSourceNode")]
+/// # {
 /// use web_audio_api::context::{BaseAudioContext, AudioContext};
 /// use web_audio_api::context::{AudioContextLatencyCategory, AudioContextOptions};
 /// use web_audio_api::media_devices;
@@ -281,6 +283,7 @@ fn is_valid_device_id(device_id: &str) -> bool {
 ///
 /// // enjoy listening
 /// std::thread::sleep(std::time::Duration::from_secs(4));
+/// # }
 /// ```
 pub fn get_user_media_sync(constraints: MediaStreamConstraints) -> MediaStream {
     try_get_user_media_sync(constraints).unwrap_or_else(|e| panic!("InvalidStateError - {e}"))

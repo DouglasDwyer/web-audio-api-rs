@@ -18,12 +18,12 @@ include = [
 rust-version = "1.86"
 
 [dependencies]
-almost = "0.2.0"
+almost = { version = "0.2.0", optional = true }
 arc-swap = "1.6"
 arrayvec = "0.7"
-fft-convolver = "0.3"
+fft-convolver = { version = "0.3", optional = true }
 cpal = { version = "0.18", optional = true }
-creek = { git = "https://github.com/DouglasDwyer/creek", branch = "claude/symphonia-0-6-upgrade-839bc0", version = "1.2", default-features = false, features = [
+creek = { git = "https://github.com/DouglasDwyer/creek", branch = "claude/symphonia-0-6-upgrade-839bc0", version = "1.2", optional = true, default-features = false, features = [
     "decode",
     "decode-all",
     "encode-wav",
@@ -38,18 +38,18 @@ futures-util = { version = "0.3.30", default-features = false, features = [
     "sink",
 ] }
 hound = "3.5"
-hrtf = { git = "https://github.com/DouglasDwyer/hrtf", rev = "d2d0fb5", version = "0.9" }
+hrtf = { git = "https://github.com/DouglasDwyer/hrtf", rev = "d2d0fb5", version = "0.9", optional = true }
 llq = "0.1.1"
 log = "0.4"
-num-complex = "0.4"
-realfft = "3.3"
-rubato = "5"
+num-complex = { version = "0.4", optional = true }
+realfft = { version = "3.3", optional = true }
+rubato = { version = "5", optional = true }
 smallvec = "1.11"
 symphonia = { version = "0.6", default-features = false, features = [
     "all",
     "opt-simd",
 ] }
-vecmath = "1.0"
+vecmath = { version = "1.0", optional = true }
 
 [target.'cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))'.dependencies]
 no_denormals = "0.3"
@@ -74,9 +74,55 @@ name = "my_benchmark"
 # See also: https://users.rust-lang.org/t/cargo-publish-with-excluded-benchmark-fails-validation/53444/2
 path = "benches/my_benchmark.rs"
 harness = false
+required-features = ["all-nodes"]
 
 [features]
-default = ["cpal"]
+default = ["cpal", "all-nodes"]
+
+all-nodes = [
+    "AnalyserNode",
+    "AudioBufferSourceNode",
+    "AudioWorkletNode",
+    "BiquadFilterNode",
+    "ChannelMergerNode",
+    "ChannelSplitterNode",
+    "ConstantSourceNode",
+    "ConvolverNode",
+    "DelayNode",
+    "DynamicsCompressorNode",
+    "GainNode",
+    "IIRFilterNode",
+    "MediaElementAudioSourceNode",
+    "MediaStreamAudioDestinationNode",
+    "MediaStreamAudioSourceNode",
+    "MediaStreamTrackAudioSourceNode",
+    "OscillatorNode",
+    "PannerNode",
+    "ScriptProcessorNode",
+    "StereoPannerNode",
+    "WaveShaperNode",
+]
+AnalyserNode = ["dep:realfft"]
+AudioBufferSourceNode = ["dep:almost"]
+AudioWorkletNode = []
+BiquadFilterNode = ["dep:num-complex"]
+ChannelMergerNode = []
+ChannelSplitterNode = []
+ConstantSourceNode = []
+ConvolverNode = ["dep:fft-convolver"]
+DelayNode = []
+DynamicsCompressorNode = []
+GainNode = []
+IIRFilterNode = ["dep:num-complex"]
+MediaElementAudioSourceNode = ["dep:creek"]
+MediaStreamAudioDestinationNode = []
+MediaStreamAudioSourceNode = []
+MediaStreamTrackAudioSourceNode = []
+OscillatorNode = []
+PannerNode = ["dep:hrtf", "dep:vecmath"]
+ScriptProcessorNode = []
+StereoPannerNode = []
+WaveShaperNode = ["dep:rubato"]
 
 # Expose structured runtime diagnostics for AudioContext and the render graph.
 diagnostics = []
@@ -103,3 +149,200 @@ wav = []
 aac = []
 m4a = []
 alac = []
+
+# Examples, tests and benchmarks use the builtin node types.
+[[example]]
+name = "amplitude_modulation"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "analyser"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "audio_buffer"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "audio_buffer_source_events"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "audio_buffer_source_pitching"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "benchmarks"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "biquad"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "change_state"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "compressor"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "constant_source"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "convolution"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "decoding"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "doppler"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "feedback_delay"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "granular"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "iir"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "latency_attributes"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "many_oscillators"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "many_oscillators_with_env"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "media_element"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "merger"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "microphone"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "mono"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "multichannel"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "oscillators"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "panner_cone"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "recorder"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "resampling"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "roundtrip_latency_test"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "script_processor"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "simple_delay"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "sink_id"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "spatial"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "stereo_panner"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "toy_webrtc"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "trigger_soundfile"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "waveshaper"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "worklet"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "worklet_bitcrusher"
+required-features = ["all-nodes"]
+
+[[example]]
+name = "worklet_message_port"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "delay_lifecycle"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "denormals"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "media_element"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "mixing"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "offline"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "online"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "processor_error"
+required-features = ["all-nodes"]
+
+[[test]]
+name = "stall_render"
+required-features = ["all-nodes"]
+
+[[bench]]
+name = "worklet"
+required-features = ["all-nodes"]

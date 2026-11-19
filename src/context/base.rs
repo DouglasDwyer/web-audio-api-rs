@@ -7,7 +7,7 @@ use crate::context::{
 };
 use crate::decoding::decode_media_data;
 use crate::events::{Event, EventHandler, EventType};
-use crate::node::{AudioNode, AudioNodeOptions};
+use crate::node::AudioNode;
 use crate::param::AudioParamDescriptor;
 use crate::periodic_wave::{PeriodicWave, PeriodicWaveOptions};
 use crate::{node, AudioListener, RENDER_QUANTUM_SIZE};
@@ -129,36 +129,42 @@ pub trait BaseAudioContext {
     }
 
     /// Creates a `AnalyserNode`
+    #[cfg(feature = "AnalyserNode")]
     #[must_use]
     fn create_analyser(&self) -> node::AnalyserNode {
         node::AnalyserNode::new(self.base(), node::AnalyserOptions::default())
     }
 
     /// Creates an `BiquadFilterNode` which implements a second order filter
+    #[cfg(feature = "BiquadFilterNode")]
     #[must_use]
     fn create_biquad_filter(&self) -> node::BiquadFilterNode {
         node::BiquadFilterNode::new(self.base(), node::BiquadFilterOptions::default())
     }
 
     /// Creates an `AudioBufferSourceNode`
+    #[cfg(feature = "AudioBufferSourceNode")]
     #[must_use]
     fn create_buffer_source(&self) -> node::AudioBufferSourceNode {
         node::AudioBufferSourceNode::new(self.base(), node::AudioBufferSourceOptions::default())
     }
 
     /// Creates an `ConstantSourceNode`, a source representing a constant value
+    #[cfg(feature = "ConstantSourceNode")]
     #[must_use]
     fn create_constant_source(&self) -> node::ConstantSourceNode {
         node::ConstantSourceNode::new(self.base(), node::ConstantSourceOptions::default())
     }
 
     /// Creates an `ConvolverNode`, a processing node which applies linear convolution
+    #[cfg(feature = "ConvolverNode")]
     #[must_use]
     fn create_convolver(&self) -> node::ConvolverNode {
         node::ConvolverNode::new(self.base(), node::ConvolverOptions::default())
     }
 
     /// Creates a `ChannelMergerNode`
+    #[cfg(feature = "ChannelMergerNode")]
     #[must_use]
     fn create_channel_merger(&self, number_of_inputs: usize) -> node::ChannelMergerNode {
         let opts = node::ChannelMergerOptions {
@@ -169,6 +175,7 @@ pub trait BaseAudioContext {
     }
 
     /// Creates a `ChannelSplitterNode`
+    #[cfg(feature = "ChannelSplitterNode")]
     #[must_use]
     fn create_channel_splitter(&self, number_of_outputs: usize) -> node::ChannelSplitterNode {
         let opts = node::ChannelSplitterOptions {
@@ -179,6 +186,7 @@ pub trait BaseAudioContext {
     }
 
     /// Creates a `DelayNode`, delaying the audio signal
+    #[cfg(feature = "DelayNode")]
     #[must_use]
     fn create_delay(&self, max_delay_time: f64) -> node::DelayNode {
         let opts = node::DelayOptions {
@@ -189,12 +197,14 @@ pub trait BaseAudioContext {
     }
 
     /// Creates a `DynamicsCompressorNode`, compressing the audio signal
+    #[cfg(feature = "DynamicsCompressorNode")]
     #[must_use]
     fn create_dynamics_compressor(&self) -> node::DynamicsCompressorNode {
         node::DynamicsCompressorNode::new(self.base(), node::DynamicsCompressorOptions::default())
     }
 
     /// Creates an `GainNode`, to control audio volume
+    #[cfg(feature = "GainNode")]
     #[must_use]
     fn create_gain(&self) -> node::GainNode {
         node::GainNode::new(self.base(), node::GainOptions::default())
@@ -208,10 +218,11 @@ pub trait BaseAudioContext {
     ///   The maximum length of this array is 20
     /// * `feedback` - An array of the feedback (denominator) coefficients for the transfer function of the IIR filter.
     ///   The maximum length of this array is 20
+    #[cfg(feature = "IIRFilterNode")]
     #[must_use]
     fn create_iir_filter(&self, feedforward: Vec<f64>, feedback: Vec<f64>) -> node::IIRFilterNode {
         let options = node::IIRFilterOptions {
-            audio_node_options: AudioNodeOptions::default(),
+            audio_node_options: node::AudioNodeOptions::default(),
             feedforward,
             feedback,
         };
@@ -219,12 +230,14 @@ pub trait BaseAudioContext {
     }
 
     /// Creates an `OscillatorNode`, a source representing a periodic waveform.
+    #[cfg(feature = "OscillatorNode")]
     #[must_use]
     fn create_oscillator(&self) -> node::OscillatorNode {
         node::OscillatorNode::new(self.base(), node::OscillatorOptions::default())
     }
 
     /// Creates a `PannerNode`
+    #[cfg(feature = "PannerNode")]
     #[must_use]
     fn create_panner(&self) -> node::PannerNode {
         node::PannerNode::new(self.base(), node::PannerOptions::default())
@@ -247,6 +260,7 @@ pub trait BaseAudioContext {
     /// - `buffer_size` is not 256, 512, 1024, 2048, 4096, 8192, or 16384
     /// - the number of input and output channels are both zero
     /// - either of the channel counts exceed [`crate::MAX_CHANNELS`]
+    #[cfg(feature = "ScriptProcessorNode")]
     #[must_use]
     fn create_script_processor(
         &self,
@@ -264,12 +278,14 @@ pub trait BaseAudioContext {
     }
 
     /// Creates an `StereoPannerNode` to pan a stereo output
+    #[cfg(feature = "StereoPannerNode")]
     #[must_use]
     fn create_stereo_panner(&self) -> node::StereoPannerNode {
         node::StereoPannerNode::new(self.base(), node::StereoPannerOptions::default())
     }
 
     /// Creates a `WaveShaperNode`
+    #[cfg(feature = "WaveShaperNode")]
     #[must_use]
     fn create_wave_shaper(&self) -> node::WaveShaperNode {
         node::WaveShaperNode::new(self.base(), node::WaveShaperOptions::default())

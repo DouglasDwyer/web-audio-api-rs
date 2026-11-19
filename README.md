@@ -19,6 +19,8 @@ use it in desktop apps, command line utilities, headless execution, etc.
 ## Example usage
 
 ```rust,no_run
+# #[cfg(feature = "default")]
+# {
 use web_audio_api::context::{AudioContext, BaseAudioContext};
 use web_audio_api::node::{AudioNode, AudioScheduledSourceNode};
 
@@ -47,6 +49,7 @@ src.start();
 
 // enjoy listening
 std::thread::sleep(std::time::Duration::from_secs(4));
+# }
 ```
 
 Check out the [docs](https://docs.rs/web-audio-api) for more info.

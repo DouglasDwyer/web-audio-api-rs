@@ -290,7 +290,7 @@ impl AudioProcessor for AnalyserRenderer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ConstantSourceNode"))]
 mod tests {
     use super::*;
     use crate::context::{
